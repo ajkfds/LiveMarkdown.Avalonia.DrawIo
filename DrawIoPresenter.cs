@@ -609,64 +609,36 @@ public class DrawIoPresenter : Control
         var endArrow = style.Get("endArrow") ?? "classic";
         var brush = ResolveStroke(style, this) ?? Foreground ?? Brushes.Black;
 
-        if (!string.Equals(startArrow, "none", StringComparison.OrdinalIgnoreCase))
+        // Marker size scales with the stroke width and can be overridden with
+        // startSize/endSize (draw.io default arrow size is 6).
+        var baseSize = Math.Max(6, thickness * 3);
+
+        if (!IsNone(startArrow))
         {
-            DrawArrowHead(dc, points[0], points[1], brush, thickness, startArrow);
+            var startSize = style.GetDouble("startSize", baseSize);
+            var startFilled = style.GetBool("startFill", true);
+            DrawIoEdgeMarker.Paint(
+                dc, startArrow, points[0], Direction(points[0], points[1]),
+                startSize, thickness, brush, startFilled);
         }
 
-        if (!string.Equals(endArrow, "none", StringComparison.OrdinalIgnoreCase))
+        if (!IsNone(endArrow))
         {
+            var endSize = style.GetDouble("endSize", baseSize);
+            var endFilled = style.GetBool("endFill", true);
             var last = points.Count - 1;
-            DrawArrowHead(dc, points[last], points[last - 1], brush, thickness, endArrow);
+            DrawIoEdgeMarker.Paint(
+                dc, endArrow, points[last], Direction(points[last], points[last - 1]),
+                endSize, thickness, brush, endFilled);
         }
     }
 
-    private static void DrawArrowHead(
-        DrawingContext dc, Point tip, Point from, IBrush brush, double thickness, string kind)
-    {
-        // draw.io scales arrowheads with the stroke width; keep a sensible floor.
-        var size = Math.Max(6, thickness * 3);
-        var dx = tip.X - from.X;
-        var dy = tip.Y - from.Y;
-        var len = Math.Sqrt(dx * dx + dy * dy);
-        if (len < 1e-6)
-        {
-            return;
-        }
+    private static bool IsNone(string kind) =>
+        kind.Length == 0 || string.Equals(kind, "none", StringComparison.OrdinalIgnoreCase);
 
-        dx /= len;
-        dy /= len;
-        var perpX = -dy;
-        var perpY = dx;
-        var open = string.Equals(kind, "open", StringComparison.OrdinalIgnoreCase);
-        const double spread = 0.5;
-
-        var left = new Point(
-            tip.X - size * (dx * Math.Cos(spread) - perpX * Math.Sin(spread)),
-            tip.Y - size * (dy * Math.Cos(spread) - perpY * Math.Sin(spread)));
-        var right = new Point(
-            tip.X - size * (dx * Math.Cos(spread) + perpX * Math.Sin(spread)),
-            tip.Y - size * (dy * Math.Cos(spread) + perpY * Math.Sin(spread)));
-
-        if (open)
-        {
-            var pen = new Pen(brush, Math.Max(1, thickness));
-            dc.DrawLine(pen, left, tip);
-            dc.DrawLine(pen, tip, right);
-            return;
-        }
-
-        var geometry = new StreamGeometry();
-        using (var ctx = geometry.Open())
-        {
-            ctx.BeginFigure(tip, true);
-            ctx.LineTo(left);
-            ctx.LineTo(right);
-            ctx.EndFigure(true);
-        }
-
-        dc.DrawGeometry(brush, null, geometry);
-    }
+    /// <summary>Direction (not normalized) from <paramref name="from"/> to <paramref name="tip"/>.</summary>
+    private static Vector Direction(Point tip, Point from) =>
+        new(tip.X - from.X, tip.Y - from.Y);
 
     /// <summary>Draws the edge's own value at its label anchor.</summary>
     private void DrawEdgeValueLabel(

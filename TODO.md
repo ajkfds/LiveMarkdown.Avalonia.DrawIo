@@ -44,14 +44,18 @@ draw.io (mxGraph) ネイティブ描画プラグインの未対応項目一覧�
 ## 2. 矢印マーカーの拡充
 
 対応済み:
-- [x] `none` / `classic` / `open`
+- [x] `none` / `classic` / `classicThin` / `open` / `openThin`
+- [x] `block` / `blockThin` / `async` / `oval` / `diamond` / `diamondThin`
+- [x] `box` / `halfCircle` / `dash` / `cross` / `circle` / `circlePlus`
+- [x] ER 系 (`ERone` / `ERmandOne` / `ERmany` / `ERoneToMany` /
+      `ERzeroToOne` / `ERzeroToMany`) / `baseDash`
+- [x] `doubleBlock`
+- [x] `startFill` / `endFill`（塗り/枠の切り替え）
+- [x] `startSize` / `endSize`（マーカーサイズ個別指定）
 
 未対応:
-- [ ] `block` / `blockThin` / `async` / `oval` / `diamond` / `diamondThin`
-- [ ] `box` / `halfCircle` / `dash` / `cross` / `circle` / `circlePlus`
-- [ ] ER 系 (`ERone` / `ERmany` / `ERoneToMany` / `ERzeroToOne` / `ERzeroToMany` / `baseDash`)
-- [ ] `doubleBlock` / `doubleBlockFilled`
-- [ ] `startSize` / `endSize`（マーカーサイズ個別指定）
+- [ ] `openAsync` / `manyOptional` などの補助マーカー
+- [ ] `startArrow`/`endArrow` に複数マーカーを連結する記法（`classic;open` 等）
 
 ## 3. 図形の変形・効果
 
