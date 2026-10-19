@@ -647,7 +647,8 @@ public class DrawIoPresenter : Control
         // draw.io routes edges through the exit/entry connection points on the
         // source/target perimeters, and inserts orthogonal bends when the edge
         // has no stored waypoints.
-        var points = BuildEdgePath(diagram, cell, style, source, target, waypoints);
+        var points = BuildEdgePath(
+            diagram, cell, style, sourceCell, targetCell, source, target, waypoints);
         if (points.Count < 2)
         {
             return;
@@ -694,6 +695,20 @@ public class DrawIoPresenter : Control
     /// <summary>Test hook for the rounded/curved edge geometry.</summary>
     internal static Geometry BuildEdgeGeometryForTest(DrawIoStyle style, IReadOnlyList<Point> points) =>
         BuildEdgeGeometry(style, points, []);
+
+    /// <summary>Test hook for edge routing (ER / orthogonal).</summary>
+    internal static List<Point> BuildEdgePathForTest(
+        DrawIoCell edge, DrawIoStyle style, DrawIoCell? sourceCell, DrawIoCell? targetCell)
+    {
+        var source = sourceCell is null
+            ? (Point?)null
+            : new Point(sourceCell.AbsoluteX + sourceCell.Width / 2, sourceCell.AbsoluteY + sourceCell.Height / 2);
+        var target = targetCell is null
+            ? (Point?)null
+            : new Point(targetCell.AbsoluteX + targetCell.Width / 2, targetCell.AbsoluteY + targetCell.Height / 2);
+
+        return BuildEdgePath(null!, edge, style, sourceCell, targetCell, source, target, []);
+    }
 
     internal static Geometry BuildEdgeGeometry(
         DrawIoStyle style, IReadOnlyList<Point> points, IReadOnlyList<EdgeJump> jumps)
@@ -885,6 +900,8 @@ public class DrawIoPresenter : Control
         DrawIoDiagram diagram,
         DrawIoCell edge,
         DrawIoStyle style,
+        DrawIoCell? sourceCell,
+        DrawIoCell? targetCell,
         Point? source,
         Point? target,
         List<Point> waypoints)
@@ -920,25 +937,92 @@ public class DrawIoPresenter : Control
         var entryX = style.GetDouble("entryX", double.NaN);
         var entryY = style.GetDouble("entryY", double.NaN);
 
+        if (string.Equals(edgeStyle, "entityRelationEdgeStyle", StringComparison.OrdinalIgnoreCase))
+        {
+            return EntityRelationRoute(sourceCell, targetCell, start, end, points);
+        }
+
         // Whether the edge leaves/enters horizontally (side) or vertically.
         var exitHorizontal = IsHorizontalAnchor(exitX, exitY);
         var entryHorizontal = IsHorizontalAnchor(entryX, entryY);
 
-        if (string.Equals(edgeStyle, "orthogonalEdgeStyle", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(edgeStyle, "orthogonalEdgeStyle", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(edgeStyle, "elbowEdgeStyle", StringComparison.OrdinalIgnoreCase))
         {
             return OrthogonalRoute(start, end, exitX, exitY, entryX, entryY,
                 exitHorizontal, entryHorizontal, points);
         }
 
-        // ER-style edges leave/enter horizontally from the table sides.
-        if (string.Equals(edgeStyle, "entityRelationEdgeStyle", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(edgeStyle, "elbowEdgeStyle", StringComparison.OrdinalIgnoreCase))
+        return points;
+    }
+
+    /// <summary>
+    /// Routes an <c>entityRelationEdgeStyle</c> edge, ported from draw.io's
+    /// <c>mxEdgeStyle.EntityRelation</c>. The edge leaves the source table's
+    /// left/right side (at its vertical centre) and enters the target's, using
+    /// a <c>segment</c> (default 40) horizontal stub, with intermediate bends
+    /// that depend on whether both endpoints face the same side.
+    /// </summary>
+    private static List<Point> EntityRelationRoute(
+        DrawIoCell? sourceCell, DrawIoCell? targetCell, Point source, Point target, List<Point> fallback)
+    {
+        if (sourceCell is null || targetCell is null)
         {
-            var midX = (start.X + end.X) / 2;
-            return [start, new Point(midX, start.Y), new Point(midX, end.Y), end];
+            return fallback;
         }
 
-        return points;
+        const double segment = 40;
+
+        var sourceBox = new Rect(sourceCell.AbsoluteX, sourceCell.AbsoluteY, sourceCell.Width, sourceCell.Height);
+        var targetBox = new Rect(targetCell.AbsoluteX, targetCell.AbsoluteY, targetCell.Width, targetCell.Height);
+
+        var p0 = new Point(sourceBox.X, sourceBox.Y);
+        var pe = new Point(targetBox.Right, targetBox.Y);
+
+        // Which side (left/right) each endpoint attaches to, mirroring
+        // mxEdgeStyle.EntityRelation's isLess comparisons. When a table sits
+        // entirely to one side, the other connects on its facing edge.
+        var isSourceLeft = pe.X < p0.X; // target right edge left of source left edge
+        var isTargetLeft = sourceBox.Right < targetBox.X; // source right edge left of target
+
+        var x0 = isSourceLeft ? sourceBox.X : sourceBox.Right;
+        var y0 = sourceBox.Center.Y;
+        var xe = isTargetLeft ? targetBox.X : targetBox.Right;
+        var ye = targetBox.Center.Y;
+
+        var dep = new Point(x0 + (isSourceLeft ? -segment : segment), y0);
+        var arr = new Point(xe + (isTargetLeft ? -segment : segment), ye);
+
+        var result = new List<Point> { new(x0, y0) };
+
+        // Case 1: both go out on the same side -> route around via an x lane.
+        if (isSourceLeft == isTargetLeft)
+        {
+            var x = isSourceLeft
+                ? Math.Min(x0, xe) - segment
+                : Math.Max(x0, xe) + segment;
+            result.Add(new Point(x, y0));
+            result.Add(new Point(x, ye));
+        }
+        // Case 2: the depart/arrive stubs are ordered the same way as the
+        // sides -> step over at the mid height.
+        else if ((dep.X < arr.X) == isSourceLeft)
+        {
+            var midY = y0 + (ye - y0) / 2;
+            result.Add(dep);
+            result.Add(new Point(dep.X, midY));
+            result.Add(new Point(arr.X, midY));
+            result.Add(arr);
+        }
+        // Case 3: direct diagonal between the two stubs.
+        else
+        {
+            result.Add(dep);
+            result.Add(arr);
+        }
+
+        result.Add(new Point(xe, ye));
+        return result;
     }
 
     /// <summary>
