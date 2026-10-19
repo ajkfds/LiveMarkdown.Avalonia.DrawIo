@@ -14,6 +14,7 @@ the geometry and style information embedded in the diagram.
 - 📄 **Multi-format input** — Supports both plain `<mxGraphModel>` XML and the default `<mxfile>` wrapper, including the compressed (base64 + deflate) `<diagram>` payload.
 - 🎨 **Shape support** — Rectangles, rounded rectangles, ellipses, and a broad set of basic preset shapes: rhombus, hexagon, parallelogram, trapezoid, step, cylinder, cloud, actor, internal storage, document, manual input, card, note, callout, double/single arrow, double ellipse, line, process, loop limit, off-page connector, tape, delay, cube, display, data storage — plus generic polygons (`mxgraph.basic.polygon` / `polyCoords` with optional quadratic curves).
 - 🏷️ **Rich labels** — HTML labels with `<b>`/`<i>`/`<span style="color:…">`/`<br>` markup and `%Placeholder%` attribute substitution.
+- ✨ **Shape effects** — `rotation`, `flipH`/`flipV`, `gradientColor`, `opacity`/`fillOpacity`/`strokeOpacity`, `shadow`, `glass`, and custom `dashPattern`.
 - ➡️ **Edges** — Orthogonal/straight routing through waypoints, edge labels, and a broad marker vocabulary (`classic`/`block`/`open`/`oval`/`diamond`/`async`/`box`/`dash`/`cross`/`circle`/`circlePlus`/`doubleBlock` and the ER markers `ERone`/`ERmandOne`/`ERmany`/`ERoneToMany`/`ERzeroToOne`/`ERzeroToMany`), with `startFill`/`endFill` and `startSize`/`endSize`.
 - 🔄 **Streaming support** — Shows the source text while the fence is open, and switches to the rendered diagram once it is closed.
 
@@ -98,7 +99,8 @@ Paste the draw.io XML (via **Extras → Edit Diagram…** in draw.io) inside a
   (e.g. `mxgraph.aws4.*`, `mxgraph.flowchart.*`) fall back to a plain rectangle.
 - Edge routing uses the stored waypoints plus a simple orthogonal route;
   rounded/curved routing and other edge styles are not re-computed.
-- Images, gradients, shadows, rotation and flips on shapes are not rendered.
+- Image cells, sketch/comic (rough.js) styles, and the full gradient/shadow
+  option set are not rendered.
 
 See `TODO.md` for the full list of unsupported features.
 

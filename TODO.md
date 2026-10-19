@@ -59,14 +59,19 @@ draw.io (mxGraph) ネイティブ描画プラグインの未対応項目一覧�
 
 ## 3. 図形の変形・効果
 
-- [ ] `rotation`（図形の回転）
-- [ ] `flipH` / `flipV`（図形の反転）
-- [ ] `gradientColor` / `gradientDirection`（グラデーション塗り）
-- [ ] `opacity` / `fillOpacity` / `strokeOpacity`（透明度）
-- [ ] `shadow`（影）
-- [ ] `glass`（ガラス効果）
+対応済み:
+- [x] `rotation`（図形の回転、セル中心まわり）
+- [x] `flipH` / `flipV`（図形の反転、両方で 180 度）
+- [x] `gradientColor`（縦方向の線形グラデーション）
+- [x] `opacity` / `fillOpacity` / `strokeOpacity`（透明度、0..1 / 0..100 両対応）
+- [x] `shadow`（影）
+- [x] `glass`（ガラス効果、上半分のハイライト）
+- [x] `dashPattern`（カスタム破線）
+
+未対応:
+- [ ] `gradientDirection` の全方向（現状は上→下のみ）
+- [ ] 影の細かい指定（`shadowOffset`, `shadowOpacity`, `shadowColor`）
 - [ ] `sketch` / `comic`（手描き風、rough.js）
-- [ ] `dashPattern`（カスタム破線）— 現状は 3,3 固定
 - [ ] `shape=image` / `image=data:...`（画像セル・アイコン画像）
 
 ## 4. テキスト・ラベル
