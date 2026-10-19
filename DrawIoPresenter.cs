@@ -668,40 +668,92 @@ public class DrawIoPresenter : Control
         dc.DrawGeometry(brush, null, geometry);
     }
 
-    /// <summary>Draws the edge's own value at the edge midpoint.</summary>
+    /// <summary>Draws the edge's own value at its label anchor.</summary>
     private void DrawEdgeValueLabel(
         DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell, DrawIoStyle style, List<Point> points)
     {
-        var mid = EdgeMidpoint(points);
-        var offset = cell.Geometry?.Offset ?? new DrawIoPoint(0, 0);
-        DrawLabelText(dc, diagram, cell, style, new Point(mid.X + offset.X, mid.Y + offset.Y));
+        var anchor = ComputeEdgeLabelAnchor(points, cell.Geometry);
+        DrawLabelText(dc, diagram, cell, style, anchor);
     }
 
     /// <summary>
-    /// Draws an <c>edgeLabel</c> child cell. Its geometry stores a relative
-    /// position along the edge (x) plus a vertical pixel offset (y), and an
-    /// optional <c>offset</c> point that shifts the text away from the anchor.
+    /// Draws an <c>edgeLabel</c> child cell at the position draw.io computes
+    /// for a relative edge geometry (see <see cref="ComputeEdgeLabelAnchor"/>).
     /// </summary>
     private void DrawEdgeLabelChild(
         DrawingContext dc, DrawIoDiagram diagram, DrawIoCell label, DrawIoStyle edgeStyle, List<Point> points)
     {
-        var mid = EdgeMidpoint(points);
-        var geometry = label.Geometry;
-        var offset = geometry?.Offset ?? new DrawIoPoint(0, 0);
-
-        // x is a fraction of the edge length; y is a vertical pixel offset.
-        var totalLength = 0.0;
-        for (var i = 1; i < points.Count; i++)
-        {
-            totalLength += Distance(points[i - 1], points[i]);
-        }
-
-        var centerX = mid.X + (geometry?.X ?? 0) * totalLength + offset.X;
-        var centerY = mid.Y + (geometry?.Y ?? 0) + offset.Y;
+        var anchor = ComputeEdgeLabelAnchor(points, label.Geometry);
 
         // Prefer the label's own style; fall back to the edge's for font size.
         var style = label.Style;
-        DrawLabelText(dc, diagram, label, style, new Point(centerX, centerY));
+        DrawLabelText(dc, diagram, label, style, anchor);
+    }
+
+    /// <summary>
+    /// Computes an edge label anchor, ported from the official
+    /// <c>mxGraphView.getPoint</c>. For a relative geometry the label travels
+    /// along the polyline to <c>(x / 2 + 0.5) * length</c> measured from the
+    /// start, then shifts by <c>y</c> pixels along the segment normal; the
+    /// optional <c>offset</c> point is added verbatim.
+    /// </summary>
+    internal static Point ComputeEdgeLabelAnchor(List<Point> points, DrawIoGeometry? geometry)
+    {
+        if (points.Count == 0)
+        {
+            return default;
+        }
+
+        if (points.Count == 1 || geometry is null || !geometry.Relative)
+        {
+            // Absolute geometry: the offset (if any) is relative to the center.
+            var center = EdgeMidpoint(points);
+            var absOffset = geometry?.Offset;
+            return new Point(center.X + (absOffset?.X ?? 0), center.Y + (absOffset?.Y ?? 0));
+        }
+
+        // Segment lengths of the routed polyline.
+        var segments = new double[points.Count - 1];
+        var totalLength = 0.0;
+        for (var i = 1; i < points.Count; i++)
+        {
+            segments[i - 1] = Distance(points[i - 1], points[i]);
+            totalLength += segments[i - 1];
+        }
+
+        var gx = geometry.X / 2.0;
+        var gy = geometry.Y;
+        var offsetX = geometry.Offset?.X ?? 0;
+        var offsetY = geometry.Offset?.Y ?? 0;
+
+        // Distance along the edge from the start.
+        var dist = (gx + 0.5) * totalLength;
+
+        // Find the segment containing dist (mxGraphView.getPoint).
+        var index = 1;
+        var length = 0.0;
+        var segment = segments[0];
+        while (dist >= length + segment && index < points.Count - 1)
+        {
+            length += segment;
+            segment = segments[index];
+            index++;
+        }
+
+        var factor = segment <= 0 ? 0 : (dist - length) / segment;
+        var p0 = points[index - 1];
+        var pe = points[index];
+
+        var dx = pe.X - p0.X;
+        var dy = pe.Y - p0.Y;
+
+        // draw.io's segment normal: nx = dy/len, ny = dx/len.
+        var nx = segment <= 0 ? 0 : dy / segment;
+        var ny = segment <= 0 ? 0 : dx / segment;
+
+        return new Point(
+            p0.X + dx * factor + nx * gy + offsetX,
+            p0.Y + dy * factor - (ny * gy - offsetY));
     }
 
     private void DrawLabelText(
