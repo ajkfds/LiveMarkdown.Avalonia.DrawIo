@@ -150,6 +150,36 @@ internal static class DrawIoShapeGeometry
             ["cube"] = Cube,
             ["display"] = Display,
             ["dataStorage"] = DataStorage,
+            // Flowchart / UML extras (pure geometry).
+            ["terminator"] = Terminator,
+            ["start"] = Terminator,
+            ["end"] = Terminator,
+            ["predefinedProcess"] = PredefinedProcess,
+            ["process2"] = PredefinedProcess,
+            ["sequential_data"] = SequentialData,
+            ["tapeData"] = SequentialData,
+            ["multi-document"] = MultiDocument,
+            ["multi_document"] = MultiDocument,
+            ["stored_data"] = StoredData,
+            ["manual_operation"] = ManualOperation,
+            ["merge_or_storage"] = MergeOrStorage,
+            ["sumEllipse"] = SumEllipse,
+            ["or"] = OrGate,
+            ["and"] = AndGate,
+            ["xor"] = XorGate,
+            ["cross2"] = CrossShape,
+            ["cross"] = CrossShape,
+            ["star"] = Star,
+            ["octagon"] = Octagon,
+            ["pentagon"] = Pentagon,
+            ["orthogonal_triangle"] = OrthogonalTriangle,
+            ["hexagon2"] = HexagonWrap,
+            ["rectCallout"] = Callout,
+            ["roundRectCallout"] = Callout,
+            ["dc_document"] = Document,
+            ["step2"] = Step,
+            ["tee"] = Tee,
+            ["folder"] = FolderShape,
         };
 
     // ---- Basic polygon shapes (mxActor derivatives) ----
@@ -829,6 +859,328 @@ internal static class DrawIoShapeGeometry
                 new Point(b.X + offset * 2, b.Y + b.Height * 0.75),
                 new Point(b.X + offset * 2, b.Y + b.Height * 0.25),
                 new Point(b.X, b.Y));
+            ctx.EndFigure(true);
+        }
+
+        return geometry;
+    }
+
+    // ---- Flowchart / UML extras ----
+
+    private static Geometry Terminator(Rect b, DrawIoStyle style)
+    {
+        // Stadium (fully rounded rectangle), height-limited radius.
+        var r = b.Height / 2;
+        return new RectangleGeometry(b, r, r);
+    }
+
+    private static Geometry PredefinedProcess(Rect b, DrawIoStyle style)
+    {
+        var size = ResolveSize(style, b.Width, 0.1, 10, maxFraction: 0.5);
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X, b.Y), true);
+            ctx.LineTo(new Point(b.Right, b.Y));
+            ctx.LineTo(new Point(b.Right, b.Bottom));
+            ctx.LineTo(new Point(b.X, b.Bottom));
+            ctx.EndFigure(true);
+            ctx.BeginFigure(new Point(b.X + size, b.Y), false);
+            ctx.LineTo(new Point(b.X + size, b.Bottom));
+            ctx.EndFigure(false);
+            ctx.BeginFigure(new Point(b.Right - size, b.Y), false);
+            ctx.LineTo(new Point(b.Right - size, b.Bottom));
+            ctx.EndFigure(false);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry SequentialData(Rect b, DrawIoStyle style)
+    {
+        // Rectangle with a wavy right edge.
+        return WaveEdge(b, right: true);
+    }
+
+    private static Geometry MultiDocument(Rect b, DrawIoStyle style)
+    {
+        var wave = b.Height * 0.15;
+
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            // Front document.
+            ctx.BeginFigure(new Point(b.X, b.Y), true);
+            ctx.LineTo(new Point(b.Right, b.Y));
+            ctx.LineTo(new Point(b.Right, b.Bottom - wave));
+            ctx.CubicBezierTo(
+                new Point(b.X + b.Width * 0.75, b.Bottom + wave / 3),
+                new Point(b.X + b.Width * 0.25, b.Bottom - 2 * wave / 3),
+                new Point(b.X, b.Bottom - wave));
+            ctx.EndFigure(true);
+            // Offset copies behind.
+            for (var i = 1; i <= 2; i++)
+            {
+                var off = i * wave * 0.6;
+                ctx.BeginFigure(new Point(b.X + off, b.Y - off), false);
+                ctx.LineTo(new Point(b.Right - i * wave * 0.6, b.Y - off));
+                ctx.EndFigure(false);
+            }
+        }
+
+        return geometry;
+    }
+
+    private static Geometry StoredData(Rect b, DrawIoStyle style)
+    {
+        // Rectangle with curved left/right edges (cylinder on its side).
+        var d = ResolveSize(style, b.Width, 0.15, 10, maxFraction: 0.25);
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X + d, b.Y), true);
+            ctx.LineTo(new Point(b.Right - d, b.Y));
+            ctx.CubicBezierTo(
+                new Point(b.Right + d, b.Y), new Point(b.Right + d, b.Bottom), new Point(b.Right - d, b.Bottom));
+            ctx.LineTo(new Point(b.X + d, b.Bottom));
+            ctx.CubicBezierTo(
+                new Point(b.X - d, b.Bottom), new Point(b.X - d, b.Y), new Point(b.X + d, b.Y));
+            ctx.EndFigure(true);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry ManualOperation(Rect b, DrawIoStyle style)
+    {
+        var size = ResolveSize(style, b.Width, 0.2, 20, maxFraction: 0.5);
+        return BuildPolygonGeometry(
+            [new Point(b.X, b.Y), new Point(b.Right, b.Y),
+             new Point(b.Right - size, b.Bottom), new Point(b.X + size, b.Bottom)],
+            style, close: true);
+    }
+
+    private static Geometry MergeOrStorage(Rect b, DrawIoStyle style)
+    {
+        // Triangle pointing down on top of a rectangle.
+        var size = b.Height * 0.3;
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X, b.Y), true);
+            ctx.LineTo(new Point(b.Right, b.Y));
+            ctx.LineTo(new Point(b.Center.X, b.Y + size));
+            ctx.EndFigure(true);
+            ctx.BeginFigure(new Point(b.X, b.Y + size), true);
+            ctx.LineTo(new Point(b.Right, b.Y + size));
+            ctx.LineTo(new Point(b.Right, b.Bottom));
+            ctx.LineTo(new Point(b.X, b.Bottom));
+            ctx.EndFigure(true);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry SumEllipse(Rect b, DrawIoStyle style)
+    {
+        return new EllipseGeometry(b);
+    }
+
+    private static Geometry OrGate(Rect b, DrawIoStyle style)
+    {
+        // OR gate: left vertical edge bulging in, right side a pointed arc.
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X, b.Y), true);
+            // Right side (pointed arc).
+            ctx.CubicBezierTo(
+                new Point(b.X + b.Width * 0.65, b.Y),
+                new Point(b.Right, b.Center.Y),
+                new Point(b.Right, b.Center.Y));
+            ctx.CubicBezierTo(
+                new Point(b.Right, b.Center.Y),
+                new Point(b.X + b.Width * 0.65, b.Bottom),
+                new Point(b.X, b.Bottom));
+            // Left side bulging in.
+            ctx.CubicBezierTo(
+                new Point(b.X + b.Width * 0.25, b.Bottom),
+                new Point(b.X + b.Width * 0.25, b.Y),
+                new Point(b.X, b.Y));
+            ctx.EndFigure(true);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry AndGate(Rect b, DrawIoStyle style)
+    {
+        var r = Math.Min(b.Width / 2, b.Height / 2);
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X, b.Y), true);
+            ctx.LineTo(new Point(b.Right - r, b.Y));
+            ctx.ArcTo(new Point(b.Right - r, b.Bottom), new Size(r, r), 0, false, SweepDirection.Clockwise);
+            ctx.LineTo(new Point(b.X, b.Bottom));
+            ctx.EndFigure(true);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry XorGate(Rect b, DrawIoStyle style)
+    {
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            // Same OR silhouette as OrGate.
+            ctx.BeginFigure(new Point(b.X, b.Y), true);
+            ctx.CubicBezierTo(
+                new Point(b.X + b.Width * 0.65, b.Y),
+                new Point(b.Right, b.Center.Y),
+                new Point(b.Right, b.Center.Y));
+            ctx.CubicBezierTo(
+                new Point(b.Right, b.Center.Y),
+                new Point(b.X + b.Width * 0.65, b.Bottom),
+                new Point(b.X, b.Bottom));
+            ctx.CubicBezierTo(
+                new Point(b.X + b.Width * 0.25, b.Bottom),
+                new Point(b.X + b.Width * 0.25, b.Y),
+                new Point(b.X, b.Y));
+            ctx.EndFigure(true);
+            // Inner arc (XOR extra curve).
+            var off = b.Width * 0.06;
+            ctx.BeginFigure(new Point(b.X + off, b.Y), false);
+            ctx.CubicBezierTo(
+                new Point(b.X + off + b.Width * 0.2, b.Center.Y),
+                new Point(b.X + off + b.Width * 0.2, b.Center.Y),
+                new Point(b.X + off, b.Bottom));
+            ctx.EndFigure(false);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry CrossShape(Rect b, DrawIoStyle style)
+    {
+        var size = style.GetDouble("size", 0.2);
+        var s = size <= 1 ? size * Math.Min(b.Width, b.Height) : size;
+        s = Math.Min(s, Math.Min(b.Width, b.Height) / 2);
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X + s, b.Y), true);
+            ctx.LineTo(new Point(b.Right - s, b.Y));
+            ctx.LineTo(new Point(b.Right - s, b.Y + s));
+            ctx.LineTo(new Point(b.Right, b.Y + s));
+            ctx.LineTo(new Point(b.Right, b.Bottom - s));
+            ctx.LineTo(new Point(b.Right - s, b.Bottom - s));
+            ctx.LineTo(new Point(b.Right - s, b.Bottom));
+            ctx.LineTo(new Point(b.X + s, b.Bottom));
+            ctx.LineTo(new Point(b.X + s, b.Bottom - s));
+            ctx.LineTo(new Point(b.X, b.Bottom - s));
+            ctx.LineTo(new Point(b.X, b.Y + s));
+            ctx.LineTo(new Point(b.X + s, b.Y + s));
+            ctx.EndFigure(true);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry Star(Rect b, DrawIoStyle style)
+    {
+        var cx = b.Center.X;
+        var cy = b.Center.Y;
+        var outerX = b.Width / 2;
+        var outerY = b.Height / 2;
+        var points = new List<Point>();
+        for (var i = 0; i < 10; i++)
+        {
+            var angle = -Math.PI / 2 + i * Math.PI / 5;
+            var f = (i % 2 == 0) ? 1.0 : 0.4;
+            points.Add(new Point(cx + Math.Cos(angle) * outerX * f, cy + Math.Sin(angle) * outerY * f));
+        }
+
+        return BuildPolygonGeometry([.. points], style, close: true);
+    }
+
+    private static Geometry Octagon(Rect b, DrawIoStyle style)
+    {
+        var size = ResolveSize(style, b.Width, 0.25, 20, maxFraction: 0.5);
+        return BuildPolygonGeometry(
+        [
+            new Point(b.X + size, b.Y), new Point(b.Right - size, b.Y),
+            new Point(b.Right, b.Y + size), new Point(b.Right, b.Bottom - size),
+            new Point(b.Right - size, b.Bottom), new Point(b.X + size, b.Bottom),
+            new Point(b.X, b.Bottom - size), new Point(b.X, b.Y + size),
+        ], style, close: true);
+    }
+
+    private static Geometry Pentagon(Rect b, DrawIoStyle style)
+    {
+        var points = new List<Point>();
+        for (var i = 0; i < 5; i++)
+        {
+            var angle = -Math.PI / 2 + i * 2 * Math.PI / 5;
+            points.Add(new Point(b.Center.X + Math.Cos(angle) * b.Width / 2, b.Center.Y + Math.Sin(angle) * b.Height / 2));
+        }
+
+        return BuildPolygonGeometry([.. points], style, close: true);
+    }
+
+    private static Geometry OrthogonalTriangle(Rect b, DrawIoStyle style)
+    {
+        return BuildPolygonGeometry(
+            [new Point(b.X, b.Y), new Point(b.Right, b.Y), new Point(b.X, b.Bottom)],
+            style, close: true);
+    }
+
+    private static Geometry Tee(Rect b, DrawIoStyle style)
+    {
+        var size = ResolveSize(style, b.Height, 0.2, 20, maxFraction: 0.5);
+        return BuildPolygonGeometry(
+            [new Point(b.X, b.Y), new Point(b.Right, b.Y),
+             new Point(b.Right, b.Y + size), new Point(b.Center.X + size / 2, b.Y + size),
+             new Point(b.Center.X + size / 2, b.Bottom), new Point(b.Center.X - size / 2, b.Bottom),
+             new Point(b.Center.X - size / 2, b.Y + size), new Point(b.X, b.Y + size)],
+            style, close: true);
+    }
+
+    private static Geometry FolderShape(Rect b, DrawIoStyle style)
+    {
+        var tab = ResolveSize(style, b.Width, 0.25, 40, maxFraction: 0.9);
+        var tabH = ResolveSize(style, b.Height, 0.15, 14, maxFraction: 0.4);
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X, b.Y + tabH), true);
+            ctx.LineTo(new Point(b.X + tab, b.Y + tabH));
+            ctx.LineTo(new Point(b.X + tab + tabH * 0.5, b.Y));
+            ctx.LineTo(new Point(b.Right, b.Y));
+            ctx.LineTo(new Point(b.Right, b.Bottom));
+            ctx.LineTo(new Point(b.X, b.Bottom));
+            ctx.EndFigure(true);
+        }
+
+        return geometry;
+    }
+
+    private static Geometry WaveEdge(Rect b, bool right)
+    {
+        var wave = b.Height * 0.15;
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(b.X, b.Y), true);
+            ctx.LineTo(new Point(b.Right, b.Y));
+            if (right)
+            {
+                ctx.CubicBezierTo(
+                    new Point(b.Right, b.Y + wave), new Point(b.Right, b.Bottom - wave), new Point(b.Right, b.Bottom));
+            }
+
+            ctx.LineTo(new Point(b.X, b.Bottom));
             ctx.EndFigure(true);
         }
 

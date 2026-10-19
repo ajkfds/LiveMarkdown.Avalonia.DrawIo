@@ -32,12 +32,20 @@ draw.io (mxGraph) ネイティブ描画プラグインの未対応項目一覧�
 - [x] テープ (`tape`) / 遅延 (`delay`) / キューブ (`cube`) / ディスプレイ (`display`)
       / データストレージ (`dataStorage`)
 
+追加対応（純ジオメトリで表現可能なもの）:
+- [x] フローチャート/汎用: `terminator`(stadium), `predefinedProcess`, `sequential_data`,
+      `multi-document`, `stored_data`, `manual_operation`, `merge_or_storage`, `sumEllipse`,
+      `cross2`, `star`, `octagon`, `pentagon`, `orthogonal_triangle`, `tee`, `folder`
+- [x] 論理ゲート: `or` / `and` / `xor`
+- [x] `mxgraph.flowchart.*` は最後のセグメント（`decision`/`terminator`/`predefined_process`
+      等）で基本図形へ解決
+
 未対応（優先度高）:
-- [ ] プリセットステンシル全般 (`mxgraph.aws4.*`, `mxgraph.flowchart.*`, `mxgraph.uml.*`,
-      `mxgraph.network.*` 等) — 現状は矩形へフォールバック。**表現力への影響が最も大きい**
+- [ ] アイコン系プリセットステンシル (`mxgraph.aws4.*`, `mxgraph.azure.*`, `mxgraph.kubernetes.*`,
+      `mxgraph.cisco.*` 等) — 現状は矩形へフォールバック。**表現力への影響が最も大きい**
 - [ ] UML 系 (`umlFrame`, `umlLifeline`, `umlState`, `swimlane` のタイトル区画)
-- [ ] 論理ゲート (`xor` / `or` / `and`)・その他の基本図形 (`rhombus` 系の派生,
-      `card`/`tape` などの `direction` バリエーション)
+- [ ] `mxStencil` XML（`<shape>`/`<foreground>`/`<background>`/`<path>`）の汎用パーサ
+      — 多数のステンシルを一括対応できる根本策（未着手）
 
 ## 2. 矢印マーカーの拡充
 
