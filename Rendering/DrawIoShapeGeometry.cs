@@ -13,6 +13,26 @@ namespace LiveMarkdown.Avalonia;
 /// </summary>
 internal static class DrawIoShapeGeometry
 {
+    /// <summary>
+    /// True when the shape id (or its last segment) matches a built-in preset
+    /// or the generic polygon key. Used so presets stay authoritative over a
+    /// registered stencil with the same short name.
+    /// </summary>
+    public static bool IsPreset(string? shapeName)
+    {
+        if (string.IsNullOrEmpty(shapeName))
+        {
+            return false;
+        }
+
+        if (shapeName.Contains("polygon", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return EnumerateShapeTokens(shapeName).Any(t => Presets.ContainsKey(t));
+    }
+
     /// <summary>Builds a fill/stroke geometry for a vertex cell.</summary>
     public static Geometry? Build(DrawIoCell cell, Rect bounds, DrawIoStyle style)
     {

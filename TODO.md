@@ -44,8 +44,13 @@ draw.io (mxGraph) ネイティブ描画プラグインの未対応項目一覧�
 - [x] `mxStencil` XML（`<shape>`/`<foreground>`/`<background>`/`<path>` の描画 DSL）の
       汎用パーサ `DrawIoStencil` を実装。`RegisterStencilSet`/`Register` で任意のステンシル
       セットを登録すると、presenter が矩形フォールバックの代わりに描画する。
-- [ ] ステンシルセット（`mxgraph.flowchart.*` / `mxgraph.aws4.*` / `mxgraph.azure.*` 等）の
-      XML ファイル同梱・自動登録 — 現状は API 提供のみで組み込みデータなし
+- [x] ステンシルセットの同梱・自動登録 — `DrawIoStencilLibrary` に draw.io
+      `flowchart.xml` の代表 17 図形（terminator/predefined_process/decision/document/
+      database/manual_input/manual_operation/preparation/off_page_reference/
+      internal_storage/delay/display/stored_data/loop_limit/sequential_data/sort/process）を
+      埋め込み、presenter 構築時に自動登録する。プリセット表が優先されるため既存形状は不変。
+- [ ] 他セット（`mxgraph.aws4.*` / `mxgraph.azure.*` / `mxgraph.kubernetes.*`）の同梱
+- [ ] ファイルからのステンシルセット読み込みヘルパ（現状は `RegisterStencilSet` に文字列で渡す）
 - [ ] UML 系 (`umlFrame`, `umlLifeline`, `umlState`, `swimlane` のタイトル区画)
 
 ## 2. 矢印マーカーの拡充

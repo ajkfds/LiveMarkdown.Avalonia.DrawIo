@@ -170,6 +170,10 @@ public class DrawIoPresenter : Control
 
         try
         {
+            // Register the bundled stencil sets once so common flowchart shapes
+            // render through the generic mxStencil engine.
+            DrawIoStencilLibrary.RegisterBuiltIns();
+
             var file = DrawIoParser.Parse(Text);
             var page = Math.Clamp(PageIndex, 0, file.Diagrams.Count - 1);
             _diagram = file.Diagrams[page];
@@ -389,9 +393,12 @@ public class DrawIoPresenter : Control
             var stroke = ResolveStroke(style, this);
             var thickness = style.GetDouble("strokeWidth", 1);
 
-            // A registered mxStencil definition takes precedence: it paints its
-            // own (possibly multi-path) geometry using the style's colours.
+            // A registered mxStencil definition is used for shapes the built-in
+            // preset table does not already handle. Presets stay authoritative
+            // so e.g. the flowchart "process"/"document" stencils do not shadow
+            // the built-in geometry variants.
             if (!isTextOnly && style.Shape is { Length: > 0 } shapeName &&
+                !DrawIoShapeGeometry.IsPreset(shapeName) &&
                 DrawIoStencil.Contains(shapeName))
             {
                 IDisposable? stencilTransform = null;
