@@ -124,6 +124,12 @@ public sealed class DrawIoCell
     /// <summary>True for edge cells.</summary>
     public bool IsEdge { get; init; }
 
+    /// <summary>False when the cell carries <c>visible="0"</c>.</summary>
+    public bool Visible { get; init; } = true;
+
+    /// <summary>Layer index (1-based) this cell belongs to, if any.</summary>
+    public int LayerId { get; set; }
+
     /// <summary>Source cell id for edges.</summary>
     public string? Source { get; init; }
 
@@ -169,6 +175,15 @@ public sealed class DrawIoDiagram
 
     /// <summary>Declared page height.</summary>
     public double PageHeight { get; set; }
+
+    /// <summary>View origin x (<c>mxGraphModel dx</c>).</summary>
+    public double ViewX { get; set; }
+
+    /// <summary>View origin y (<c>mxGraphModel dy</c>).</summary>
+    public double ViewY { get; set; }
+
+    /// <summary>Identifies the default (background) layer cell ids.</summary>
+    public required List<string> LayerIds { get; init; }
 
     /// <summary>All parsed cells by id.</summary>
     public required Dictionary<string, DrawIoCell> Cells { get; init; }

@@ -119,6 +119,8 @@ public static class DrawIoParser
         var background = model.Attribute("background")?.Value;
         var pageWidth = ParseDouble(model.Attribute("pageWidth")?.Value, 0);
         var pageHeight = ParseDouble(model.Attribute("pageHeight")?.Value, 0);
+        var viewX = ParseDouble(model.Attribute("dx")?.Value, 0);
+        var viewY = ParseDouble(model.Attribute("dy")?.Value, 0);
 
         var root = model.Descendants().FirstOrDefault(e => e.Name.LocalName == "root")
             ?? throw new FormatException("mxGraphModel is missing a <root> element.");
@@ -183,6 +185,58 @@ public static class DrawIoParser
             }
         }
 
+        // A layer is a child of the root with no geometry. Collect them so the
+        // renderer can assign cells to their layer and skip hidden ones.
+        var layerIds = new List<string>();
+        foreach (var cell in ordered)
+        {
+            if (cell.Id == rootId)
+            {
+                continue;
+            }
+
+            if (cell.Parent == rootId && !cell.IsVertex && !cell.IsEdge && cell.Geometry is null)
+            {
+                layerIds.Add(cell.Id);
+            }
+        }
+
+        if (layerIds.Count == 0)
+        {
+            // Single implicit layer.
+            layerIds.Add(layerId);
+        }
+
+        var layerIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < layerIds.Count; i++)
+        {
+            layerIndex[layerIds[i]] = i + 1;
+        }
+
+        // Assign each cell to a layer by walking up the parent chain until a
+        // layer id is hit.
+        foreach (var cell in ordered)
+        {
+            var current = cell;
+            var guard = 0;
+            while (current is not null && guard++ < 64)
+            {
+                if (layerIndex.TryGetValue(current.Id, out var index))
+                {
+                    cell.LayerId = index;
+                    break;
+                }
+
+                if (current.Parent is not { Length: > 0 } parentId ||
+                    !cells.TryGetValue(parentId, out var parent))
+                {
+                    break;
+                }
+
+                current = parent;
+            }
+        }
+
         ResolveAbsoluteGeometry(cells, rootId);
 
         return new DrawIoDiagram
@@ -190,10 +244,13 @@ public static class DrawIoParser
             Cells = cells,
             RootId = rootId,
             LayerId = layerId,
+            LayerIds = layerIds,
             OrderedCells = ordered,
             Background = string.IsNullOrEmpty(background) || background == "none" ? null : background,
             PageWidth = pageWidth,
-            PageHeight = pageHeight
+            PageHeight = pageHeight,
+            ViewX = viewX,
+            ViewY = viewY
         };
     }
 
@@ -232,6 +289,10 @@ public static class DrawIoParser
             ? wrapper!.Attribute("label")?.Value ?? cellElement.Attribute("value")?.Value ?? string.Empty
             : cellElement.Attribute("value")?.Value ?? string.Empty;
 
+        // Visibility may live on the wrapper or the inner mxCell.
+        var visibleAttr = (isWrapper ? wrapper!.Attribute("visible")?.Value : null)
+                          ?? cellElement.Attribute("visible")?.Value;
+
         var cell = new DrawIoCell
         {
             Id = id,
@@ -242,7 +303,8 @@ public static class DrawIoParser
             IsVertex = cellElement.Attribute("vertex")?.Value == "1",
             IsEdge = cellElement.Attribute("edge")?.Value == "1",
             Source = cellElement.Attribute("source")?.Value,
-            Target = cellElement.Attribute("target")?.Value
+            Target = cellElement.Attribute("target")?.Value,
+            Visible = visibleAttr is null || (visibleAttr != "0" && !visibleAttr.Equals("false", StringComparison.OrdinalIgnoreCase))
         };
 
         if (isWrapper)

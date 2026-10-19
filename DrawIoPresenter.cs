@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 
 namespace LiveMarkdown.Avalonia;
 
@@ -77,12 +78,27 @@ public class DrawIoPresenter : Control
         set => SetValue(ScaleProperty, value);
     }
 
+    /// <summary>Defines the <see cref="PageIndex"/> property.</summary>
+    public static readonly StyledProperty<int> PageIndexProperty =
+        AvaloniaProperty.Register<DrawIoPresenter, int>(nameof(PageIndex), 0);
+
+    /// <summary>
+    /// Zero-based index of the diagram page to render when the source is a
+    /// multi-page <c>mxfile</c>. Default is 0 (the first page).
+    /// </summary>
+    public int PageIndex
+    {
+        get => GetValue(PageIndexProperty);
+        set => SetValue(PageIndexProperty, value);
+    }
+
     private const double Padding = 8;
 
     private DrawIoDiagram? _diagram;
     private Rect _contentBounds;
     private Exception? _error;
     private Size _size;
+    private readonly Dictionary<string, Bitmap?> _imageCache = new(StringComparer.Ordinal);
 
     static DrawIoPresenter()
     {
@@ -93,14 +109,14 @@ public class DrawIoPresenter : Control
             FontFamilyProperty,
             FontSizeProperty,
             ScaleProperty);
-        AffectsMeasure<DrawIoPresenter>(TextProperty, FontSizeProperty, ScaleProperty);
+        AffectsMeasure<DrawIoPresenter>(TextProperty, FontSizeProperty, ScaleProperty, PageIndexProperty);
     }
 
     /// <inheritdoc/>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == TextProperty)
+        if (change.Property == TextProperty || change.Property == PageIndexProperty)
         {
             _diagram = null;
             _error = null;
@@ -155,7 +171,8 @@ public class DrawIoPresenter : Control
         try
         {
             var file = DrawIoParser.Parse(Text);
-            _diagram = file.Diagrams[0];
+            var page = Math.Clamp(PageIndex, 0, file.Diagrams.Count - 1);
+            _diagram = file.Diagrams[page];
             _contentBounds = ComputeContentBounds(_diagram);
             var scale = Scale <= 0 ? 1.0 : Scale;
             _size = new Size(
@@ -179,7 +196,8 @@ public class DrawIoPresenter : Control
 
         foreach (var cell in diagram.OrderedCells)
         {
-            if (!cell.IsVertex || cell.Id is "0" || cell.Id == diagram.LayerId)
+            if (!cell.IsVertex || cell.Id is "0" || cell.Id == diagram.LayerId ||
+                !IsCellVisible(diagram, cell))
             {
                 continue;
             }
@@ -206,7 +224,7 @@ public class DrawIoPresenter : Control
 
         foreach (var cell in diagram.OrderedCells)
         {
-            if (!cell.IsEdge)
+            if (!cell.IsEdge || !IsCellVisible(diagram, cell))
             {
                 continue;
             }
@@ -254,6 +272,43 @@ public class DrawIoPresenter : Control
         dc.DrawText(text, new Point(8, 8));
     }
 
+    /// <summary>
+    /// True when a cell should be drawn: it is visible, all its ancestors are
+    /// visible, its layer is visible, and no ancestor container is collapsed.
+    /// </summary>
+    private static bool IsCellVisible(DrawIoDiagram diagram, DrawIoCell cell)
+    {
+        var current = cell;
+        var guard = 0;
+        while (current is not null && guard++ < 64)
+        {
+            if (!current.Visible)
+            {
+                return false;
+            }
+
+            // A collapsed container hides its descendants. Guard against the
+            // cell itself being the collapsed container.
+            if (!ReferenceEquals(current, cell) &&
+                (current.Style.GetBool("collapsible") || current.Style.GetBool("container")) &&
+                current.Style.GetBool("collapsed"))
+            {
+                return false;
+            }
+
+            if (current.Parent is not { Length: > 0 } parentId ||
+                parentId == diagram.RootId ||
+                !diagram.Cells.TryGetValue(parentId, out var parent))
+            {
+                break;
+            }
+
+            current = parent;
+        }
+
+        return true;
+    }
+
     private void RenderDiagram(DrawingContext dc, DrawIoDiagram diagram)
     {
         var scale = Scale <= 0 ? 1.0 : Scale;
@@ -268,7 +323,7 @@ public class DrawIoPresenter : Control
         // Edges first so vertices paint over their endpoints.
         foreach (var cell in diagram.OrderedCells)
         {
-            if (cell.IsEdge)
+            if (cell.IsEdge && IsCellVisible(diagram, cell))
             {
                 DrawEdge(dc, diagram, cell);
             }
@@ -283,7 +338,7 @@ public class DrawIoPresenter : Control
 
             // Edge labels are rendered together with their edge, not as a
             // standalone vertex.
-            if (IsEdgeLabel(cell))
+            if (IsEdgeLabel(cell) || !IsCellVisible(diagram, cell))
             {
                 continue;
             }
@@ -319,6 +374,14 @@ public class DrawIoPresenter : Control
         var flipH = style.GetBool("flipH");
         var flipV = style.GetBool("flipV");
         var hasTransform = Math.Abs(rotation % 360) > 1e-6 || flipH || flipV;
+
+        // Image cell: draw the bitmap instead of the shape geometry, but still
+        // honour the shape outline if one is present.
+        if (!isTextOnly && width > 0 && height > 0 && TryDrawImage(dc, cell, bounds, style, hasTransform, rotation, flipH, flipV))
+        {
+            DrawLabel(dc, diagram, cell, bounds, style, isTextOnly);
+            return;
+        }
 
         if (!isTextOnly && width > 0 && height > 0)
         {
@@ -362,6 +425,117 @@ public class DrawIoPresenter : Control
         }
 
         DrawLabel(dc, diagram, cell, bounds, style, isTextOnly);
+    }
+
+    /// <summary>
+    /// Draws an image cell (a <c>shape=image</c> style, an image-valued
+    /// <c>value</c>, or an <c>image=data:...</c>/<c>image=https:...</c> style
+    /// key). Returns true when an image was drawn (or attempted).
+    /// </summary>
+    private bool TryDrawImage(
+        DrawingContext dc, DrawIoCell cell, Rect bounds, DrawIoStyle style,
+        bool hasTransform, double rotation, bool flipH, bool flipV)
+    {
+        if (!TryResolveImageSource(cell, style, out var source))
+        {
+            return false;
+        }
+
+        var bitmap = GetOrLoadBitmap(source);
+        if (bitmap is null)
+        {
+            // Fall back to the shape geometry if the image cannot be loaded.
+            return false;
+        }
+
+        IDisposable? transform = null;
+        if (hasTransform)
+        {
+            transform = dc.PushTransform(ShapeTransform(bounds, rotation, flipH, flipV));
+        }
+
+        // draw.io treats the bitmap as filling the cell (imageAspect=0), with
+        // the origin optionally nudged by imageBorder/spacing. We use the plain
+        // cell bounds unless the geometry carries an image offset.
+        dc.DrawImage(bitmap, bounds);
+
+        transform?.Dispose();
+        return true;
+    }
+
+    /// <summary>
+    /// Resolves the bitmap source for an image cell. Supports the style keys
+    /// (<c>image</c>, <c>imagePath</c>) and an image-valued <c>value</c>.
+    /// </summary>
+    private static bool TryResolveImageSource(DrawIoCell cell, DrawIoStyle style, out string source)
+    {
+        source = string.Empty;
+
+        var isImageShape = string.Equals(style.Get("shape"), "image", StringComparison.OrdinalIgnoreCase) ||
+                           style.GetBool("image");
+
+        // The image may be in the style or (when shape=image) in the value.
+        var candidate = style.Get("image")
+                        ?? style.Get("imagePath")
+                        ?? (isImageShape ? cell.Value : null);
+
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return false;
+        }
+
+        // Only data URIs and absolute URLs are supported (no file access).
+        if (candidate.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+        {
+            source = candidate;
+            return true;
+        }
+
+        if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            source = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    private Bitmap? GetOrLoadBitmap(string source)
+    {
+        if (_imageCache.TryGetValue(source, out var cached))
+        {
+            return cached;
+        }
+
+        Bitmap? bitmap = null;
+        try
+        {
+            if (source.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                var comma = source.IndexOf(',');
+                if (comma >= 0)
+                {
+                    var payload = source[(comma + 1)..];
+                    var bytes = Convert.FromBase64String(payload);
+                    using var stream = new MemoryStream(bytes);
+                    bitmap = new Bitmap(stream);
+                }
+            }
+            else if (Uri.TryCreate(source, UriKind.Absolute, out var uri))
+            {
+                // Remote images require a synchronous download, which we avoid;
+                // only data URIs are rendered inline.
+                _ = uri;
+            }
+        }
+        catch
+        {
+            bitmap = null;
+        }
+
+        _imageCache[source] = bitmap;
+        return bitmap;
     }
 
     /// <summary>

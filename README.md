@@ -16,6 +16,8 @@ the geometry and style information embedded in the diagram.
 - 🏷️ **Rich labels** — HTML labels with `<b>`/`<i>`/`<span style="color:…">`/`<br>` markup, `%Placeholder%` attribute substitution, `fontStyle` bits (bold/italic/underline), `whiteSpace=wrap` word wrapping, vertical text (`horizontal=0`) and label background.
 - ✨ **Shape effects** — `rotation`, `flipH`/`flipV`, `gradientColor`, `opacity`/`fillOpacity`/`strokeOpacity`, `shadow`, `glass`, and custom `dashPattern`.
 - ➡️ **Edges** — Orthogonal / ER / elbow routing, `rounded=1` corners, `curved=1` smoothing, `jumpStyle=arc` intersection jumps, edge labels, and a broad marker vocabulary (`classic`/`block`/`open`/`oval`/`diamond`/`async`/`box`/`dash`/`cross`/`circle`/`circlePlus`/`doubleBlock` and the ER markers `ERone`/`ERmandOne`/`ERmany`/`ERoneToMany`/`ERzeroToOne`/`ERzeroToMany`), with `startFill`/`endFill` and `startSize`/`endSize`.
+- 🗂️ **Pages, layers and visibility** — Selects a page via `PageIndex`; honours hidden cells (`visible="0"`), collapsed containers and layer assignment.
+- 🖼️ **Image cells** — Renders `shape=image` / `image=data:image/...` cells from inline data URIs.
 - 🔄 **Streaming support** — Shows the source text while the fence is open, and switches to the rendered diagram once it is closed.
 
 ## Installation
@@ -91,6 +93,7 @@ Paste the draw.io XML (via **Extras → Edit Diagram…** in draw.io) inside a
 | `FontFamily` / `FontSize` | Font for text in the diagram. |
 | `BackgroundBrush` | Background of the whole diagram (transparent by default). |
 | `Scale` | Zoom/scale applied when rendering the diagram. |
+| `PageIndex` | Zero-based index of the page to render in a multi-page `<mxfile>`. |
 
 ## Limitations
 
