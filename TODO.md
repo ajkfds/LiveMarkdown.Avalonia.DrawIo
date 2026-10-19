@@ -41,11 +41,12 @@ draw.io (mxGraph) ネイティブ描画プラグインの未対応項目一覧�
       等）で基本図形へ解決
 
 未対応（優先度高）:
-- [ ] アイコン系プリセットステンシル (`mxgraph.aws4.*`, `mxgraph.azure.*`, `mxgraph.kubernetes.*`,
-      `mxgraph.cisco.*` 等) — 現状は矩形へフォールバック。**表現力への影響が最も大きい**
+- [x] `mxStencil` XML（`<shape>`/`<foreground>`/`<background>`/`<path>` の描画 DSL）の
+      汎用パーサ `DrawIoStencil` を実装。`RegisterStencilSet`/`Register` で任意のステンシル
+      セットを登録すると、presenter が矩形フォールバックの代わりに描画する。
+- [ ] ステンシルセット（`mxgraph.flowchart.*` / `mxgraph.aws4.*` / `mxgraph.azure.*` 等）の
+      XML ファイル同梱・自動登録 — 現状は API 提供のみで組み込みデータなし
 - [ ] UML 系 (`umlFrame`, `umlLifeline`, `umlState`, `swimlane` のタイトル区画)
-- [ ] `mxStencil` XML（`<shape>`/`<foreground>`/`<background>`/`<path>`）の汎用パーサ
-      — 多数のステンシルを一括対応できる根本策（未着手）
 
 ## 2. 矢印マーカーの拡充
 

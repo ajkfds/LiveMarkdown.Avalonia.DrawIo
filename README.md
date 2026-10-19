@@ -18,6 +18,7 @@ the geometry and style information embedded in the diagram.
 - ➡️ **Edges** — Orthogonal / ER / elbow routing, `rounded=1` corners, `curved=1` smoothing, `jumpStyle=arc` intersection jumps, edge labels, and a broad marker vocabulary (`classic`/`block`/`open`/`oval`/`diamond`/`async`/`box`/`dash`/`cross`/`circle`/`circlePlus`/`doubleBlock` and the ER markers `ERone`/`ERmandOne`/`ERmany`/`ERoneToMany`/`ERzeroToOne`/`ERzeroToMany`), with `startFill`/`endFill` and `startSize`/`endSize`.
 - 🗂️ **Pages, layers and visibility** — Selects a page via `PageIndex`; honours hidden cells (`visible="0"`), collapsed containers and layer assignment.
 - 🖼️ **Image cells** — Renders `shape=image` / `image=data:image/...` cells from inline data URIs.
+- 🧩 **Generic stencil engine** — A native port of draw.io's `mxStencil` XML grammar (`save`/`restore`, `path`/`move`/`line`/`quad`/`curve`/`arc`/`rect`/`roundrect`/`ellipse`, `fill`/`stroke`/`fillstroke`, style keys). Register any stencil set via `DrawIoStencil.RegisterStencilSet(xml)` and the presenter renders it instead of the rectangle fallback.
 - 🔄 **Streaming support** — Shows the source text while the fence is open, and switches to the rendered diagram once it is closed.
 
 ## Installation

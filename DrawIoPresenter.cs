@@ -385,12 +385,35 @@ public class DrawIoPresenter : Control
 
         if (!isTextOnly && width > 0 && height > 0)
         {
+            var fill = ResolveFillBrush(style);
+            var stroke = ResolveStroke(style, this);
+            var thickness = style.GetDouble("strokeWidth", 1);
+
+            // A registered mxStencil definition takes precedence: it paints its
+            // own (possibly multi-path) geometry using the style's colours.
+            if (!isTextOnly && style.Shape is { Length: > 0 } shapeName &&
+                DrawIoStencil.Contains(shapeName))
+            {
+                IDisposable? stencilTransform = null;
+                if (hasTransform)
+                {
+                    stencilTransform = dc.PushTransform(ShapeTransform(bounds, rotation, flipH, flipV));
+                }
+
+                DrawIoStencil.TryDraw(
+                    dc, shapeName, bounds, style,
+                    fill ?? Brushes.Transparent,
+                    stroke ?? Brushes.Black,
+                    thickness);
+
+                stencilTransform?.Dispose();
+                DrawLabel(dc, diagram, cell, bounds, style, isTextOnly);
+                return;
+            }
+
             var geometry = DrawIoShapeGeometry.Build(cell, bounds, style);
             if (geometry is not null)
             {
-                var fill = ResolveFillBrush(style);
-                var stroke = ResolveStroke(style, this);
-                var thickness = style.GetDouble("strokeWidth", 1);
                 var pen = stroke is not null && thickness > 0 ? BuildPen(style, stroke, thickness) : null;
 
                 IDisposable? transform = null;
