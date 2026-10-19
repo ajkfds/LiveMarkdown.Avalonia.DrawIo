@@ -310,9 +310,10 @@ public static class DrawIoParser
     }
 
     /// <summary>
-    /// Computes absolute coordinates: children with relative geometry are
-    /// offset from their parent vertex; absolute children use their raw
-    /// geometry but inherit the accumulated parent origin when nested.
+    /// Computes absolute coordinates. In draw.io, a child cell's geometry is
+    /// always relative to its parent's origin (the <c>relative</c> flag only
+    /// marks edge waypoints), so nested children inherit the accumulated
+    /// parent offset.
     /// </summary>
     private static void ResolveAbsoluteGeometry(Dictionary<string, DrawIoCell> cells, string rootId)
     {
@@ -333,16 +334,8 @@ public static class DrawIoParser
                 parentY = parent.AbsoluteY;
             }
 
-            if (cell.Geometry.Relative)
-            {
-                cell.AbsoluteX = parentX + cell.Geometry.X;
-                cell.AbsoluteY = parentY + cell.Geometry.Y;
-            }
-            else
-            {
-                cell.AbsoluteX = parentX + cell.Geometry.X;
-                cell.AbsoluteY = parentY + cell.Geometry.Y;
-            }
+            cell.AbsoluteX = parentX + cell.Geometry.X;
+            cell.AbsoluteY = parentY + cell.Geometry.Y;
         }
     }
 

@@ -318,6 +318,9 @@ public class DrawIoPresenter : Control
             var geometry = DrawIoShapeGeometry.Build(cell, bounds, style);
             if (geometry is not null)
             {
+                // draw.io default vertex style: white fill and black stroke when
+                // the style does not specify fillColor/strokeColor. The default
+                // can be suppressed with an explicit "none"/"default" value.
                 var fill = ResolveFill(style);
                 var stroke = ResolveStroke(style, this);
                 var thickness = style.GetDouble("strokeWidth", 1);
@@ -351,6 +354,8 @@ public class DrawIoPresenter : Control
         var fontSize = style.GetDouble("fontSize", FontSize);
         var align = style.Get("align") ?? "center";
         var verticalLabelPosition = style.Get("verticalLabelPosition");
+        var labelPosition = style.Get("labelPosition") ?? "center";
+        var spacing = style.GetDouble("spacing", 2) + style.GetDouble("spacingLeft", 0);
 
         var typeface = new Typeface(FontFamily);
         var bold = style.GetBool("fontStyle") || style.GetBool("bold");
@@ -364,7 +369,9 @@ public class DrawIoPresenter : Control
         var lineHeight = fontSize * 1.25;
         var totalHeight = lines.Length * lineHeight;
 
-        // Determine the label box within the cell bounds, honoring labelPosition.
+        // Determine the label box, honoring verticalLabelPosition (top/bottom)
+        // and labelPosition (left/right). draw.io places the label adjacent to
+        // the shape for left/right positions, outside its bounds.
         double boxX = bounds.X, boxY = bounds.Y, boxW = bounds.Width, boxH = bounds.Height;
         if (verticalLabelPosition == "top")
         {
@@ -375,6 +382,22 @@ public class DrawIoPresenter : Control
         {
             boxY = bounds.Bottom;
             boxH = totalHeight;
+        }
+
+        var horizontalAnchor = align;
+        switch (labelPosition)
+        {
+            case "left":
+                // Label sits to the left; align its text to the shape's left edge.
+                boxW = 0;
+                boxX = bounds.X - spacing;
+                horizontalAnchor = "right";
+                break;
+            case "right":
+                boxW = 0;
+                boxX = bounds.Right + spacing;
+                horizontalAnchor = "left";
+                break;
         }
 
         if (isTextOnly && (bounds.Width <= 0 || bounds.Height <= 0))
@@ -394,10 +417,10 @@ public class DrawIoPresenter : Control
                 fontSize,
                 defaultBrush);
 
-            double x = align switch
+            double x = horizontalAnchor switch
             {
-                "left" => boxX + 3,
-                "right" => boxX + boxW - formatted.Width - 3,
+                "left" => boxX + (labelPosition == "center" ? 3 : 0),
+                "right" => boxX + boxW - formatted.Width - (labelPosition == "center" ? 3 : 0),
                 _ => boxX + (boxW - formatted.Width) / 2
             };
 
@@ -668,12 +691,18 @@ public class DrawIoPresenter : Control
         return new Point(cell.AbsoluteX + width / 2, cell.AbsoluteY + height / 2);
     }
 
-    private IBrush ResolveFill(DrawIoStyle style)
+    /// <summary>
+    /// Resolves a vertex/shape fill. draw.io's default vertex style uses
+    /// <c>fillColor=default</c>, which maps to white; an absent value behaves
+    /// the same way. <c>none</c> yields no fill.
+    /// </summary>
+    private static IBrush ResolveFill(DrawIoStyle style)
     {
         var fill = style.Get("fillColor");
-        if (fill is null)
+        if (fill is null || string.Equals(fill, "default", StringComparison.OrdinalIgnoreCase))
         {
-            return Brushes.Transparent;
+            // draw.io default vertex fill.
+            return Brushes.White;
         }
 
         if (string.Equals(fill, "none", StringComparison.OrdinalIgnoreCase))
@@ -681,28 +710,23 @@ public class DrawIoPresenter : Control
             return Brushes.Transparent;
         }
 
-        if (string.Equals(fill, "default", StringComparison.OrdinalIgnoreCase))
-        {
-            return Brushes.Transparent;
-        }
-
-        return TryBrush(fill) ?? Brushes.Transparent;
+        return TryBrush(fill) ?? Brushes.White;
     }
 
+    /// <summary>
+    /// Resolves a stroke color. draw.io's default vertex/edge style uses
+    /// <c>strokeColor=default</c>, which maps to black; an absent value behaves
+    /// the same way. <c>none</c> yields no stroke.
+    /// </summary>
     private static IBrush? ResolveStroke(DrawIoStyle style, DrawIoPresenter presenter)
     {
         var stroke = style.Get("strokeColor");
-        if (stroke is null)
-        {
-            return null;
-        }
-
         if (string.Equals(stroke, "none", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        if (string.Equals(stroke, "default", StringComparison.OrdinalIgnoreCase))
+        if (stroke is null || string.Equals(stroke, "default", StringComparison.OrdinalIgnoreCase))
         {
             return presenter.Foreground ?? Brushes.Black;
         }
@@ -721,15 +745,83 @@ public class DrawIoPresenter : Control
         return TryBrush(color) ?? presenter.Foreground ?? Brushes.Black;
     }
 
+    /// <summary>
+    /// Parses a draw.io/CSS color. Supports plain colors plus the
+    /// <c>light-dark(a, b)</c> and <c>var(--x, fallback)</c> forms emitted by
+    /// modern draw.io, falling back to the first parseable inner value.
+    /// </summary>
     private static IBrush? TryBrush(string color)
     {
+        var normalized = NormalizeColor(color);
+        if (normalized is null)
+        {
+            return null;
+        }
+
         try
         {
-            return new SolidColorBrush(Color.Parse(color));
+            return new SolidColorBrush(Color.Parse(normalized));
         }
         catch
         {
             return null;
         }
+    }
+
+    private static string? NormalizeColor(string color)
+    {
+        var value = color.Trim();
+        if (value.Length == 0 || value.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var lower = value.ToLowerInvariant();
+        if (lower.StartsWith("light-dark(", StringComparison.Ordinal))
+        {
+            // Use the light-theme branch.
+            var inner = ExtractArguments(value["light-dark(".Length..^1]);
+            return inner.Count > 0 ? NormalizeColor(inner[0]) : null;
+        }
+
+        if (lower.StartsWith("var(", StringComparison.Ordinal))
+        {
+            // Use the fallback argument when present.
+            var inner = ExtractArguments(value["var(".Length..^1]);
+            return inner.Count > 1 ? NormalizeColor(inner[1]) : null;
+        }
+
+        return value;
+    }
+
+    /// <summary>Splits a comma-separated argument list at the top nesting level.</summary>
+    private static List<string> ExtractArguments(string text)
+    {
+        var result = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            switch (text[i])
+            {
+                case '(':
+                    depth++;
+                    break;
+                case ')':
+                    depth--;
+                    break;
+                case ',' when depth == 0:
+                    result.Add(text[start..i].Trim());
+                    start = i + 1;
+                    break;
+            }
+        }
+
+        if (start < text.Length)
+        {
+            result.Add(text[start..].Trim());
+        }
+
+        return result;
     }
 }
