@@ -12,7 +12,7 @@ the geometry and style information embedded in the diagram.
 - 🔌 **Markdown integration** — Detects ` ```drawio ` fences and renders the embedded draw.io XML.
 - 🧩 **Native rendering** — No JS / WebView required. Runs on pure C# + Avalonia only.
 - 📄 **Multi-format input** — Supports both plain `<mxGraphModel>` XML and the default `<mxfile>` wrapper, including the compressed (base64 + deflate) `<diagram>` payload.
-- 🎨 **Shape support** — Rectangles, rounded rectangles, ellipses, triangles, and generic polygons (`mxgraph.basic.polygon` / `polyCoords`, with optional quadratic curves).
+- 🎨 **Shape support** — Rectangles, rounded rectangles, ellipses, and a broad set of basic preset shapes: rhombus, hexagon, parallelogram, trapezoid, step, cylinder, cloud, actor, internal storage, document, manual input, card, note, callout, double/single arrow, double ellipse, line, process, loop limit, off-page connector, tape, delay, cube, display, data storage — plus generic polygons (`mxgraph.basic.polygon` / `polyCoords` with optional quadratic curves).
 - 🏷️ **Rich labels** — HTML labels with `<b>`/`<i>`/`<span style="color:…">`/`<br>` markup and `%Placeholder%` attribute substitution.
 - ➡️ **Edges** — Orthogonal/straight routing through waypoints, with classic/open arrowheads and edge labels.
 - 🔄 **Streaming support** — Shows the source text while the fence is open, and switches to the rendered diagram once it is closed.
@@ -94,12 +94,13 @@ Paste the draw.io XML (via **Extras → Edit Diagram…** in draw.io) inside a
 ## Limitations
 
 - Only the **first** `<diagram>` page of an `<mxfile>` is rendered.
-- Only the core draw.io shape vocabulary is supported (rectangles, rounded
-  rectangles, ellipses, triangles, polygons). Exotic stencil shapes fall back to
-  a plain rectangle.
-- Edge routing uses the stored waypoints; automatic orthogonal/curved routing is
-  not re-computed.
-- Images, gradients, shadows and rotation on shapes are not rendered.
+- A set of basic shapes is supported (see Features); exotic preset stencils
+  (e.g. `mxgraph.aws4.*`, `mxgraph.flowchart.*`) fall back to a plain rectangle.
+- Edge routing uses the stored waypoints plus a simple orthogonal route;
+  rounded/curved routing and other edge styles are not re-computed.
+- Images, gradients, shadows, rotation and flips on shapes are not rendered.
+
+See `TODO.md` for the full list of unsupported features.
 
 ## License
 
