@@ -1,0 +1,7 @@
+<Styles
+  xmlns="https://github.com/avaloniaui" xmlns:md="clr-namespace:LiveMarkdown.Avalonia">
+  <Style Selector="md|DrawIoPresenter">
+    <Setter Property="FontSize" Value="{DynamicResource FontSizeM}"/>
+    <Setter Property="Foreground" Value="{DynamicResource ForegroundColor}"/>
+  </Style>
+</Styles>
