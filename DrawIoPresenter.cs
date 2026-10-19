@@ -455,7 +455,7 @@ public class DrawIoPresenter : Control
         }
 
         var attributes = ResolvePlaceholderAttributes(diagram, cell);
-        var (text, spans) = DrawIoLabelParser.Parse(cell.Value, attributes);
+        var (text, _) = DrawIoLabelParser.Parse(cell.Value, attributes);
         if (string.IsNullOrWhiteSpace(text))
         {
             return;
@@ -463,26 +463,68 @@ public class DrawIoPresenter : Control
 
         var fontSize = style.GetDouble("fontSize", FontSize);
         var align = style.Get("align") ?? "center";
+        var verticalAlign = style.Get("verticalAlign") ?? "middle";
         var verticalLabelPosition = style.Get("verticalLabelPosition");
         var labelPosition = style.Get("labelPosition") ?? "center";
         var spacing = style.GetDouble("spacing", 2) + style.GetDouble("spacingLeft", 0);
 
-        var typeface = new Typeface(FontFamily);
-        var bold = style.GetBool("fontStyle") || style.GetBool("bold");
-        if (style.Get("fontStyle") is { Length: > 0 } fs && int.TryParse(fs, out var styleBits))
-        {
-            bold = (styleBits & 1) != 0;
-        }
-
+        var (bold, italic, underline) = DrawIoTextLayout.ResolveFontStyle(style, false);
+        var typeface = BuildTypeface(bold, italic);
         var defaultBrush = ResolveFontColor(style, this);
-        var lines = text.Split('\n');
+
+        // Vertical text (horizontal=0): rotate the whole label 90 degrees.
+        var horizontalValue = style.Get("horizontal");
+        var vertical = string.Equals(horizontalValue, "0", StringComparison.Ordinal) ||
+                       string.Equals(horizontalValue, "false", StringComparison.OrdinalIgnoreCase);
+
         var lineHeight = fontSize * 1.25;
-        var totalHeight = lines.Length * lineHeight;
 
         // Determine the label box, honoring verticalLabelPosition (top/bottom)
         // and labelPosition (left/right). draw.io places the label adjacent to
         // the shape for left/right positions, outside its bounds.
         double boxX = bounds.X, boxY = bounds.Y, boxW = bounds.Width, boxH = bounds.Height;
+        var isExternal = false;
+
+        if (verticalLabelPosition == "top")
+        {
+            isExternal = true;
+        }
+        else if (verticalLabelPosition == "bottom")
+        {
+            isExternal = true;
+        }
+
+        var horizontalAnchor = align;
+        switch (labelPosition)
+        {
+            case "left":
+                boxW = 0;
+                boxX = bounds.X - spacing;
+                horizontalAnchor = "right";
+                isExternal = true;
+                break;
+            case "right":
+                boxW = 0;
+                boxX = bounds.Right + spacing;
+                horizontalAnchor = "left";
+                isExternal = true;
+                break;
+        }
+
+        // Word wrap when the label is bounded by the shape.
+        var wrap = style.GetBool("whiteSpace") ||
+                   string.Equals(style.Get("whiteSpace"), "wrap", StringComparison.OrdinalIgnoreCase);
+        var availableWidth = !isExternal && !double.IsInfinity(boxW) && boxW > 0
+            ? boxW - 6
+            : double.PositiveInfinity;
+
+        var lines = wrap && availableWidth > 0
+            ? DrawIoTextLayout.Wrap(text, availableWidth, typeface, fontSize)
+            : [.. text.Split('\n')];
+
+        var totalHeight = lines.Count * lineHeight;
+
+        // Re-resolve the external box height now that the line count is known.
         if (verticalLabelPosition == "top")
         {
             boxY = bounds.Y - totalHeight;
@@ -494,36 +536,54 @@ public class DrawIoPresenter : Control
             boxH = totalHeight;
         }
 
-        var horizontalAnchor = align;
-        switch (labelPosition)
-        {
-            case "left":
-                // Label sits to the left; align its text to the shape's left edge.
-                boxW = 0;
-                boxX = bounds.X - spacing;
-                horizontalAnchor = "right";
-                break;
-            case "right":
-                boxW = 0;
-                boxX = bounds.Right + spacing;
-                horizontalAnchor = "left";
-                break;
-        }
-
         if (isTextOnly && (bounds.Width <= 0 || bounds.Height <= 0))
         {
             boxW = double.PositiveInfinity;
             boxH = totalHeight;
         }
 
-        var y = boxY + (boxH - totalHeight) / 2;
+        // Vertical text: rotate around the label centre and swap the bounds.
+        IDisposable? transform = null;
+        if (vertical)
+        {
+            var cx = boxX + (double.IsInfinity(boxW) ? 0 : boxW / 2);
+            var cy = boxY + boxH / 2;
+            transform = dc.PushTransform(
+                Matrix.CreateTranslation(-cx, -cy) *
+                Matrix.CreateRotation(-Math.PI / 2) *
+                Matrix.CreateTranslation(cx, cy));
+            // Swap the effective box for layout purposes.
+            (boxW, boxH) = (boxH, boxW);
+        }
+
+        var startY = verticalAlign switch
+        {
+            "top" => boxY,
+            "bottom" => boxY + boxH - totalHeight,
+            _ => boxY + (boxH - totalHeight) / 2,
+        };
+
+        // Label background (drawn behind the text).
+        var background = style.Get("labelBackgroundColor");
+        if (background is { Length: > 0 } &&
+            !string.Equals(background, "none", StringComparison.OrdinalIgnoreCase) &&
+            TryBrush(background) is { } bgBrush)
+        {
+            var bgWidth = double.IsInfinity(boxW) ? 0 : boxW;
+            if (bgWidth > 0)
+            {
+                dc.DrawRectangle(bgBrush, null, new Rect(boxX, startY, bgWidth, totalHeight));
+            }
+        }
+
+        var y = startY;
         foreach (var line in lines)
         {
             var formatted = new FormattedText(
                 line,
                 CultureInfo.CurrentCulture,
                 FlowDirection.LeftToRight,
-                bold ? new Typeface(FontFamily, FontStyle.Normal, FontWeight.Bold) : typeface,
+                typeface,
                 fontSize,
                 defaultBrush);
 
@@ -539,9 +599,33 @@ public class DrawIoPresenter : Control
                 x = boxX;
             }
 
-            dc.DrawText(formatted, new Point(x, y + (lineHeight - formatted.Height) / 2));
+            var drawY = y + (lineHeight - formatted.Height) / 2;
+
+            // Optional per-cell underline (fontStyle bit 4).
+            if (underline)
+            {
+                var underlineY = drawY + formatted.Height - fontSize * 0.15;
+                dc.DrawLine(new Pen(defaultBrush, 1), new Point(x, underlineY), new Point(x + formatted.Width, underlineY));
+            }
+
+            dc.DrawText(formatted, new Point(x, drawY));
             y += lineHeight;
         }
+
+        transform?.Dispose();
+    }
+
+    /// <summary>Builds a typeface honouring bold/italic font-style bits.</summary>
+    private Typeface BuildTypeface(bool bold, bool italic)
+    {
+        if (!bold && !italic)
+        {
+            return new Typeface(FontFamily);
+        }
+
+        var style = italic ? FontStyle.Italic : FontStyle.Normal;
+        var weight = bold ? FontWeight.Bold : FontWeight.Normal;
+        return new Typeface(FontFamily, style, weight);
     }
 
     private void DrawEdge(DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell)

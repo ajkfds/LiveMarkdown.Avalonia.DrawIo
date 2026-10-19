@@ -79,17 +79,18 @@ draw.io (mxGraph) ネイティブ描画プラグインの未対応項目一覧�
 対応済み:
 - [x] `<b>` / `<i>` / `<span style="color">` / `<br>`
 - [x] `%Placeholder%`（親チェーン解決）
-- [x] `fontStyle` の太字
+- [x] `fontStyle` の太字(1)・斜体(2)・下線(4)
 - [x] `align` / `verticalAlign` / `labelPosition` / `verticalLabelPosition`
 - [x] `fontSize` / `fontColor` / `fontFamily`（簡易）
+- [x] `whiteSpace=wrap` の自動折り返し（長い単語は強制分割）
+- [x] 縦書き (`horizontal=0`、ラベルを 90 度回転)
+- [x] ラベル背景 (`labelBackgroundColor`)
 
 未対応:
-- [ ] `fontStyle` の斜体(2)・下線(4)
-- [ ] `whiteSpace=wrap` の自動折り返し
-- [ ] 縦書き・テキスト回転 (`horizontal=0`, `rotation`, `textDirection`, `writing-mode`)
 - [ ] リッチ HTML の残り (`<font>`, `<sup>`/`<sub>`, `<hr>`, リスト, 表, リンク)
-- [ ] ラベル背景/枠線 (`labelBackgroundColor`, `labelBorderColor`)
-- [ ] `spacing` 系の全網羅 (`spacingTop/Bottom/Right`)
+- [ ] ラベル枠線 (`labelBorderColor`)
+- [ ] `spacingTop/Bottom/Right` の全網羅、`textDirection` / `writing-mode`
+- [ ] スパン単位の描画（現状は色以外のスパン書式はテキストへ反映）
 
 ## 5. エッジ（コネクタ）
 
