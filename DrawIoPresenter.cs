@@ -313,29 +313,136 @@ public class DrawIoPresenter : Control
         var height = cell.Height;
         var bounds = new Rect(cell.AbsoluteX, cell.AbsoluteY, width, height);
 
+        // Apply the shape's rotation/flip around the cell centre. draw.io keeps
+        // the label upright, so only the shape geometry is transformed.
+        var rotation = style.GetDouble("rotation", 0);
+        var flipH = style.GetBool("flipH");
+        var flipV = style.GetBool("flipV");
+        var hasTransform = Math.Abs(rotation % 360) > 1e-6 || flipH || flipV;
+
         if (!isTextOnly && width > 0 && height > 0)
         {
             var geometry = DrawIoShapeGeometry.Build(cell, bounds, style);
             if (geometry is not null)
             {
-                // draw.io default vertex style: white fill and black stroke when
-                // the style does not specify fillColor/strokeColor. The default
-                // can be suppressed with an explicit "none"/"default" value.
-                var fill = ResolveFill(style);
+                var fill = ResolveFillBrush(style);
                 var stroke = ResolveStroke(style, this);
                 var thickness = style.GetDouble("strokeWidth", 1);
-                var pen = stroke is not null && thickness > 0 ? new Pen(stroke, thickness) : null;
-                var dashed = style.GetBool("dashed");
-                if (dashed && pen is not null)
+                var pen = stroke is not null && thickness > 0 ? BuildPen(style, stroke, thickness) : null;
+
+                IDisposable? transform = null;
+                if (hasTransform)
                 {
-                    pen = new Pen(stroke, thickness, new DashStyle([3, 3], 0));
+                    transform = dc.PushTransform(ShapeTransform(bounds, rotation, flipH, flipV));
+                }
+
+                // Shadow: a soft offset copy of the geometry behind the shape.
+                if (style.GetBool("shadow"))
+                {
+                    var shadowBrush = new SolidColorBrush(Color.FromArgb(0x40, 0, 0, 0));
+                    var offset = new Vector(3, 3);
+                    using (dc.PushTransform(Matrix.CreateTranslation(offset.X, offset.Y)))
+                    {
+                        dc.DrawGeometry(shadowBrush, null, geometry);
+                    }
                 }
 
                 dc.DrawGeometry(fill, pen, geometry);
+
+                // Glass effect: a translucent highlight over the top half.
+                if (style.GetBool("glass") && fill is not null)
+                {
+                    var glassBounds = new Rect(bounds.X, bounds.Y, bounds.Width, bounds.Height / 2);
+                    var glass = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
+                    dc.DrawGeometry(glass, null, new RectangleGeometry(glassBounds));
+                }
+
+                transform?.Dispose();
             }
         }
 
         DrawLabel(dc, diagram, cell, bounds, style, isTextOnly);
+    }
+
+    /// <summary>
+    /// Builds the rotate/flip matrix applied to a shape, mirroring
+    /// <c>mxSvgCanvas2D.rotate</c>: rotation is applied around the cell centre,
+    /// and flips mirror about the centre (both flips == +180 degrees).
+    /// </summary>
+    internal static Matrix ShapeTransformForTest(Rect bounds, double rotationDegrees, bool flipH, bool flipV) =>
+        ShapeTransform(bounds, rotationDegrees, flipH, flipV);
+
+    internal static IBrush ResolveFillBrushForTest(DrawIoStyle style) => ResolveFillBrush(style);
+
+    internal static double[] ResolveDashPatternForTest(DrawIoStyle style) => ResolveDashPattern(style);
+
+    private static Matrix ShapeTransform(Rect bounds, double rotationDegrees, bool flipH, bool flipV)
+    {
+        var cx = bounds.Center.X;
+        var cy = bounds.Center.Y;
+
+        var matrix = Matrix.CreateTranslation(-cx, -cy);
+
+        if (flipH && flipV)
+        {
+            rotationDegrees += 180;
+        }
+        else if (flipH)
+        {
+            matrix *= Matrix.CreateScale(-1, 1);
+        }
+        else if (flipV)
+        {
+            matrix *= Matrix.CreateScale(1, -1);
+        }
+
+        matrix *= Matrix.CreateRotation(rotationDegrees * Math.PI / 180.0);
+        matrix *= Matrix.CreateTranslation(cx, cy);
+        return matrix;
+    }
+
+    /// <summary>
+    /// Builds the pen for a shape/edge, honouring <c>dashed</c> with an
+    /// optional custom <c>dashPattern</c> and stroke opacity.
+    /// </summary>
+    private static IPen BuildPen(DrawIoStyle style, IBrush stroke, double thickness)
+    {
+        var pen = new Pen(stroke, thickness);
+        if (style.GetBool("dashed"))
+        {
+            var pattern = ResolveDashPattern(style);
+            pen = new Pen(stroke, thickness, new DashStyle(pattern, 0));
+        }
+
+        return pen;
+    }
+
+    /// <summary>
+    /// Resolves the dash pattern. <c>dashPattern</c> (space-separated) wins over
+    /// the draw.io default of <c>3 3</c>.
+    /// </summary>
+    private static double[] ResolveDashPattern(DrawIoStyle style)
+    {
+        var custom = style.Get("dashPattern");
+        if (custom is { Length: > 0 })
+        {
+            var parts = custom.Split([' '], StringSplitOptions.RemoveEmptyEntries);
+            var values = new List<double>();
+            foreach (var part in parts)
+            {
+                if (double.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d >= 0)
+                {
+                    values.Add(d);
+                }
+            }
+
+            if (values.Count >= 2)
+            {
+                return [.. values];
+            }
+        }
+
+        return [3, 3];
     }
 
     private void DrawLabel(
@@ -464,10 +571,7 @@ public class DrawIoPresenter : Control
 
         var stroke = ResolveStroke(style, this) ?? Foreground ?? Brushes.Black;
         var thickness = style.GetDouble("strokeWidth", 1);
-        var dashed = style.GetBool("dashed");
-        var pen = dashed
-            ? new Pen(stroke, thickness, new DashStyle([3, 3], 0))
-            : new Pen(stroke, thickness);
+        var pen = BuildPen(style, stroke, thickness);
 
         // Shorten the line at each end so it stops at the marker base rather
         // than poking out past the arrow tip (mxMarker mutates the endpoint pe).
@@ -956,31 +1060,70 @@ public class DrawIoPresenter : Control
     }
 
     /// <summary>
-    /// Resolves a vertex/shape fill. draw.io's default vertex style uses
-    /// <c>fillColor=default</c>, which maps to white; an absent value behaves
-    /// the same way. <c>none</c> yields no fill.
+    /// Resolves a vertex/shape fill as a brush, synthesising a linear gradient
+    /// when <c>gradientColor</c> is present. draw.io's default vertex style
+    /// uses <c>fillColor=default</c>, which maps to white; an absent value
+    /// behaves the same way. <c>none</c> yields no fill. <c>fillOpacity</c> and
+    /// <c>opacity</c> (0..100, where 100 is opaque) are applied to the brush.
     /// </summary>
-    private static IBrush ResolveFill(DrawIoStyle style)
+    private static IBrush ResolveFillBrush(DrawIoStyle style)
+    {
+        var opacity = ResolveOpacity(style, "fillOpacity", "opacity", 1.0);
+        var fillColor = ResolveFillColor(style);
+
+        var gradientColor = style.Get("gradientColor");
+        if (gradientColor is { Length: > 0 } &&
+            !string.Equals(gradientColor, "none", StringComparison.OrdinalIgnoreCase) &&
+            TryColor(gradientColor) is { } second)
+        {
+            // Start with the fill color (or white when unset) at the top.
+            var first = fillColor ?? Colors.White;
+            first = ApplyOpacity(first, opacity);
+            second = ApplyOpacity(second, opacity);
+
+            var brush = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            };
+            brush.GradientStops.Add(new GradientStop(first, 0));
+            brush.GradientStops.Add(new GradientStop(second, 1));
+            return brush;
+        }
+
+        if (fillColor is { } color)
+        {
+            return new SolidColorBrush(ApplyOpacity(color, opacity));
+        }
+
+        return Brushes.Transparent;
+    }
+
+    /// <summary>
+    /// Resolves the raw <c>fillColor</c> as a color, or <c>null</c> when the
+    /// fill is <c>none</c>.
+    /// </summary>
+    private static Color? ResolveFillColor(DrawIoStyle style)
     {
         var fill = style.Get("fillColor");
-        if (fill is null || string.Equals(fill, "default", StringComparison.OrdinalIgnoreCase))
-        {
-            // draw.io default vertex fill.
-            return Brushes.White;
-        }
-
         if (string.Equals(fill, "none", StringComparison.OrdinalIgnoreCase))
         {
-            return Brushes.Transparent;
+            return null;
         }
 
-        return TryBrush(fill) ?? Brushes.White;
+        if (fill is null || string.Equals(fill, "default", StringComparison.OrdinalIgnoreCase))
+        {
+            return Colors.White;
+        }
+
+        return TryColor(fill) ?? Colors.White;
     }
 
     /// <summary>
     /// Resolves a stroke color. draw.io's default vertex/edge style uses
     /// <c>strokeColor=default</c>, which maps to black; an absent value behaves
-    /// the same way. <c>none</c> yields no stroke.
+    /// the same way. <c>none</c> yields no stroke. <c>strokeOpacity</c> and
+    /// <c>opacity</c> are applied.
     /// </summary>
     private static IBrush? ResolveStroke(DrawIoStyle style, DrawIoPresenter presenter)
     {
@@ -990,12 +1133,58 @@ public class DrawIoPresenter : Control
             return null;
         }
 
-        if (stroke is null || string.Equals(stroke, "default", StringComparison.OrdinalIgnoreCase))
+        var color = stroke is null || string.Equals(stroke, "default", StringComparison.OrdinalIgnoreCase)
+            ? ColorOf(presenter.Foreground) ?? Colors.Black
+            : TryColor(stroke) ?? ColorOf(presenter.Foreground) ?? Colors.Black;
+
+        var opacity = ResolveOpacity(style, "strokeOpacity", "opacity", 1.0);
+        return new SolidColorBrush(ApplyOpacity(color, opacity));
+    }
+
+    private static Color? ColorOf(IBrush? brush) =>
+        brush is ISolidColorBrush solid ? solid.Color : null;
+
+    /// <summary>
+    /// Reads an opacity from the style. draw.io stores opacity as a percentage
+    /// (0..100); missing values fall back to <paramref name="fallback"/>.
+    /// </summary>
+    private static double ResolveOpacity(DrawIoStyle style, string key, string generalKey, double fallback)
+    {
+        var raw = style.Get(key) ?? style.Get(generalKey);
+        if (raw is null)
         {
-            return presenter.Foreground ?? Brushes.Black;
+            return fallback;
         }
 
-        return TryBrush(stroke) ?? presenter.Foreground ?? Brushes.Black;
+        if (double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+        {
+            // Accept both 0..1 and 0..100 forms.
+            var fraction = value > 1 ? value / 100.0 : value;
+            return Math.Clamp(fraction, 0, 1);
+        }
+
+        return fallback;
+    }
+
+    private static Color ApplyOpacity(Color color, double opacity) =>
+        opacity >= 1 ? color : Color.FromArgb((byte)Math.Round(color.A * opacity), color.R, color.G, color.B);
+
+    private static Color? TryColor(string color)
+    {
+        var normalized = NormalizeColor(color);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Color.Parse(normalized);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static IBrush ResolveFontColor(DrawIoStyle style, DrawIoPresenter presenter)
