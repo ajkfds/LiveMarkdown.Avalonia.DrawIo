@@ -440,8 +440,14 @@ public class DrawIoPresenter : Control
     private void DrawEdge(DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell)
     {
         var style = cell.Style;
-        var source = ResolveEndpoint(diagram, cell, cell.Source, isSource: true);
-        var target = ResolveEndpoint(diagram, cell, cell.Target, isSource: false);
+
+        var sourceCell = GetCell(diagram, cell.Source);
+        var targetCell = GetCell(diagram, cell.Target);
+        var sourceCenter = CenterOf(sourceCell);
+        var targetCenter = CenterOf(targetCell);
+
+        var source = ResolveEndpoint(sourceCell, style, isSource: true, toward: targetCenter);
+        var target = ResolveEndpoint(targetCell, style, isSource: false, toward: sourceCenter);
 
         var waypoints = (cell.Geometry?.Waypoints ?? [])
             .Select(p => new Point(p.X, p.Y))
@@ -636,7 +642,7 @@ public class DrawIoPresenter : Control
     private static bool IsNone(string kind) =>
         kind.Length == 0 || string.Equals(kind, "none", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Direction (not normalized) from <paramref name="from"/> to <paramref name="tip"/>.</summary>
+    /// <summary>Direction (not normalized) from <paramref name="from"/> to the tip.</summary>
     private static Vector Direction(Point tip, Point from) =>
         new(tip.X - from.X, tip.Y - from.Y);
 
@@ -802,32 +808,90 @@ public class DrawIoPresenter : Control
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
+    private static DrawIoCell? GetCell(DrawIoDiagram diagram, string? id) =>
+        id is not null && diagram.Cells.TryGetValue(id, out var cell) ? cell : null;
+
+    private static Point CenterOf(DrawIoCell? cell) =>
+        cell is null
+            ? default
+            : new Point(cell.AbsoluteX + cell.Width / 2, cell.AbsoluteY + cell.Height / 2);
+
     /// <summary>
     /// Resolves an edge endpoint. draw.io connects to the source/target vertex
-    /// perimeter at the exit/entry connection point (defaulting to the center
-    /// when the edge does not constrain it). The exit point is used for the
-    /// source and the entry point for the target.
+    /// perimeter: when the edge specifies an exit/entry connection point it is
+    /// used directly, otherwise the intersection of the line toward the other
+    /// terminal with the vertex's bounding box is used (so the arrow tip sits
+    /// on the box edge rather than at its centre).
     /// </summary>
-    private static Point? ResolveEndpoint(
-        DrawIoDiagram diagram, DrawIoCell edge, string? endpointId, bool isSource)
+    internal static Point? ResolveEndpoint(
+        DrawIoCell? cell, DrawIoStyle edgeStyle, bool isSource, Point toward)
     {
-        if (endpointId is null || !diagram.Cells.TryGetValue(endpointId, out var cell))
+        if (cell is null)
         {
             return null;
         }
 
         var width = cell.Width;
         var height = cell.Height;
+        if (width <= 0 || height <= 0)
+        {
+            // Degenerate geometry (e.g. a port point): use the cell origin.
+            return new Point(cell.AbsoluteX, cell.AbsoluteY);
+        }
 
         var prefix = isSource ? "exit" : "entry";
-        var fx = edge.Style.GetDouble(prefix + "X", double.NaN);
-        var fy = edge.Style.GetDouble(prefix + "Y", double.NaN);
+        var fx = edgeStyle.GetDouble(prefix + "X", double.NaN);
+        var fy = edgeStyle.GetDouble(prefix + "Y", double.NaN);
 
-        // Clamp to the shape box; draw.io connection points are normalized.
-        var ox = double.IsNaN(fx) ? 0.5 : Math.Clamp(fx, 0, 1);
-        var oy = double.IsNaN(fy) ? 0.5 : Math.Clamp(fy, 0, 1);
+        // Explicit connection point: clamp to the shape box and use as-is.
+        if (!double.IsNaN(fx) || !double.IsNaN(fy))
+        {
+            var ox = double.IsNaN(fx) ? 0.5 : Math.Clamp(fx, 0, 1);
+            var oy = double.IsNaN(fy) ? 0.5 : Math.Clamp(fy, 0, 1);
+            return new Point(cell.AbsoluteX + ox * width, cell.AbsoluteY + oy * height);
+        }
 
-        return new Point(cell.AbsoluteX + ox * width, cell.AbsoluteY + oy * height);
+        // Otherwise intersect the ray from the centre toward the other terminal
+        // with the bounding box (rectangle perimeter).
+        var center = CenterOf(cell);
+        var dx = toward.X - center.X;
+        var dy = toward.Y - center.Y;
+        var perimeter = RectanglePerimeter(center, new Size(width, height), dx, dy);
+        return perimeter ?? center;
+    }
+
+    /// <summary>
+    /// Returns the intersection of the ray from <paramref name="center"/> in
+    /// direction (<paramref name="dx"/>, <paramref name="dy"/>) with the
+    /// rectangle of the given size centred on <paramref name="center"/>.
+    /// </summary>
+    internal static Point? RectanglePerimeter(Point center, Size size, double dx, double dy)
+    {
+        if (Math.Abs(dx) < 1e-9 && Math.Abs(dy) < 1e-9)
+        {
+            return null;
+        }
+
+        var hw = size.Width / 2;
+        var hh = size.Height / 2;
+
+        var t = double.PositiveInfinity;
+        if (Math.Abs(dx) > 1e-9)
+        {
+            t = Math.Min(t, hw / Math.Abs(dx));
+        }
+
+        if (Math.Abs(dy) > 1e-9)
+        {
+            t = Math.Min(t, hh / Math.Abs(dy));
+        }
+
+        if (double.IsInfinity(t))
+        {
+            return null;
+        }
+
+        return new Point(center.X + dx * t, center.Y + dy * t);
     }
 
     /// <summary>
