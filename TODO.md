@@ -97,18 +97,18 @@ draw.io (mxGraph) ネイティブ描画プラグインの未対応項目一覧�
 対応済み:
 - [x] `exitX/exitY` / `entryX/entryY` 接続点
 - [x] waypoint 折れ線
-- [x] `orthogonalEdgeStyle`（簡易直交ベンド）
-- [x] `strokeWidth` / `dashed`
-- [x] `classic` / `open` 矢じり
+- [x] `orthogonalEdgeStyle`（直交ルーティング、水平/垂直/混合アンカー対応）
+- [x] `entityRelationEdgeStyle` / `elbowEdgeStyle`（ER 風の折れ線）
+- [x] `rounded=1`（角丸配線、`arcSize`）、`curved=1`（曲線配線）
+- [x] `jumpStyle=arc` / `jumpSize`（交差ジャンプ）
+- [x] `strokeWidth` / `dashed` / `dashPattern`
+- [x] 全マーカー（classic/block/open/oval/diamond/... ER 系）
 - [x] エッジラベル位置 (`mxGraphView.getPoint` 準拠)
 
 未対応:
-- [ ] `rounded=1`（角丸配線）、`jettySize`、障害物回避
-- [ ] 他エッジスタイル (`entityRelationEdgeStyle`, `elbowEdgeStyle`,
-      `segmentEdgeStyle`, `loopEdgeStyle`, `sideToSide`, `topToBottom` 等)
-- [ ] `curved=1` / ベジェ曲線配線
-- [ ] `jumpStyle` / `jumpSize`（交差ジャンプ）
-- [ ] フローティング接続（source/target なし、`exitX`/`entryY` のみ）
+- [ ] `segmentEdgeStyle` / `loopEdgeStyle` / `sideToSide` / `topToBottom` など
+- [ ] 障害物回避（libavoid）と `jettySize` の精密な再現
+- [ ] フローティング接続（source/target なし、終端 `mxPoint` のみ）
 - [ ] `exitPerimeter` / `entryPerimeter`（周囲射影）
 
 ## 6. 構造・ページ

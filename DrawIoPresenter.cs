@@ -661,18 +661,9 @@ public class DrawIoPresenter : Control
         // than poking out past the arrow tip (mxMarker mutates the endpoint pe).
         var linePoints = InsetLineForMarkers(style, points, thickness);
 
-        var geometry = new StreamGeometry();
-        using (var ctx = geometry.Open())
-        {
-            ctx.BeginFigure(linePoints[0], false);
-            for (var i = 1; i < linePoints.Count; i++)
-            {
-                ctx.LineTo(linePoints[i]);
-            }
-
-            ctx.EndFigure(false);
-        }
-
+        // Find crossings with other edges so jumpStyle can insert bumps.
+        var jumps = ResolveEdgeJumps(diagram, cell, linePoints);
+        var geometry = BuildEdgeGeometry(style, linePoints, jumps);
         dc.DrawGeometry(null, pen, geometry);
 
         DrawEdgeMarkers(dc, style, points, thickness);
@@ -688,6 +679,201 @@ public class DrawIoPresenter : Control
                 DrawEdgeLabelChild(dc, diagram, child, style, points);
             }
         }
+    }
+
+    /// <summary>
+    /// Builds the edge geometry from its routed polyline, honouring
+    /// <c>rounded=1</c> (rounded orthogonal corners) and <c>curved=1</c>
+    /// (smooth quadratic smoothing).
+    /// </summary>
+    internal static Geometry BuildEdgeGeometry(DrawIoStyle style, IReadOnlyList<Point> points)
+    {
+        return BuildEdgeGeometry(style, points, []);
+    }
+
+    /// <summary>Test hook for the rounded/curved edge geometry.</summary>
+    internal static Geometry BuildEdgeGeometryForTest(DrawIoStyle style, IReadOnlyList<Point> points) =>
+        BuildEdgeGeometry(style, points, []);
+
+    internal static Geometry BuildEdgeGeometry(
+        DrawIoStyle style, IReadOnlyList<Point> points, IReadOnlyList<EdgeJump> jumps)
+    {
+        var geometry = new StreamGeometry();
+        if (points.Count < 2)
+        {
+            return geometry;
+        }
+
+        var curved = style.GetBool("curved");
+        if (curved)
+        {
+            using (var ctx = geometry.Open())
+            {
+                ctx.BeginFigure(points[0], false);
+                for (var i = 1; i < points.Count; i++)
+                {
+                    var mid = new Point((points[i - 1].X + points[i].X) / 2, (points[i - 1].Y + points[i].Y) / 2);
+                    ctx.QuadraticBezierTo(points[i - 1], mid);
+                    ctx.QuadraticBezierTo(points[i], points[i]);
+                }
+
+                ctx.EndFigure(false);
+            }
+
+            return geometry;
+        }
+
+        var radius = style.GetBool("rounded") ? ResolveCornerRadius(style) : 0;
+
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(points[0], false);
+
+            for (var i = 1; i < points.Count; i++)
+            {
+                var prev = points[i - 1];
+                var cur = points[i];
+
+                // Insert jump bumps that fall on this segment.
+                foreach (var jump in jumps)
+                {
+                    if (jump.SegmentIndex == i - 1)
+                    {
+                        LineWithJump(ctx, prev, cur, jump.Center, jump.Size);
+                    }
+                }
+
+                if (radius > 0 && i < points.Count - 1)
+                {
+                    var corner = cur;
+                    var next = points[i + 1];
+                    var enter = MoveAlong(corner, prev, Math.Min(radius, Distance(corner, prev) / 2));
+                    var exit = MoveAlong(corner, next, Math.Min(radius, Distance(corner, next) / 2));
+                    ctx.LineTo(enter);
+                    ctx.QuadraticBezierTo(corner, exit);
+                }
+                else
+                {
+                    ctx.LineTo(cur);
+                }
+            }
+
+            ctx.EndFigure(false);
+        }
+
+        return geometry;
+    }
+
+    private static void LineWithJump(
+        StreamGeometryContext ctx, Point a, Point b, Point center, double size)
+    {
+        // Draw a -> (center - size/2) as a line, then bump to (center + size/2),
+        // then continue to b.
+        var dx = b.X - a.X;
+        var dy = b.Y - a.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-6)
+        {
+            ctx.LineTo(b);
+            return;
+        }
+
+        dx /= len;
+        dy /= len;
+        var half = size / 2;
+
+        var start = new Point(center.X - dx * half, center.Y - dy * half);
+        var end = new Point(center.X + dx * half, center.Y + dy * half);
+        var perp = new Point(center.X - dy * half, center.Y + dx * half);
+
+        ctx.LineTo(start);
+        ctx.QuadraticBezierTo(perp, end);
+    }
+
+    /// <summary>Corner radius for rounded edges (draw.io arcSize default 20).</summary>
+    private static double ResolveCornerRadius(DrawIoStyle style)
+    {
+        var arcSize = style.GetDouble("arcSize", 20);
+        return Math.Clamp(arcSize, 0, 100) / 2;
+    }
+
+    /// <summary>A jump point on a specific edge segment (jumpStyle=arc).</summary>
+    internal readonly record struct EdgeJump(int SegmentIndex, Point Center, double Size);
+
+    /// <summary>
+    /// Finds where this edge crosses other edges' segments, so jumpStyle can
+    /// insert bumps. Only edges with <c>jumpStyle</c> other than <c>none</c>
+    /// produce jumps.
+    /// </summary>
+    private static List<EdgeJump> ResolveEdgeJumps(
+        DrawIoDiagram diagram, DrawIoCell edge, IReadOnlyList<Point> points)
+    {
+        var result = new List<EdgeJump>();
+
+        var jumpStyle = edge.Style.Get("jumpStyle");
+        if (string.IsNullOrEmpty(jumpStyle) ||
+            string.Equals(jumpStyle, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            return result;
+        }
+
+        var jumpSize = edge.Style.GetDouble("jumpSize", 6);
+
+        foreach (var other in diagram.OrderedCells)
+        {
+            if (ReferenceEquals(other, edge) || !other.IsEdge)
+            {
+                continue;
+            }
+
+            var otherPoints = (other.Geometry?.Waypoints ?? [])
+                .Select(p => new Point(p.X, p.Y))
+                .ToList();
+            if (otherPoints.Count < 2)
+            {
+                continue;
+            }
+
+            for (var i = 1; i < points.Count; i++)
+            {
+                for (var j = 1; j < otherPoints.Count; j++)
+                {
+                    if (TryIntersect(points[i - 1], points[i], otherPoints[j - 1], otherPoints[j], out var hit))
+                    {
+                        result.Add(new EdgeJump(i - 1, hit, jumpSize));
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Intersection of two line segments, if any.</summary>
+    internal static bool TryIntersect(Point a1, Point a2, Point b1, Point b2, out Point result)
+    {
+        result = default;
+        var d1x = a2.X - a1.X;
+        var d1y = a2.Y - a1.Y;
+        var d2x = b2.X - b1.X;
+        var d2y = b2.Y - b1.Y;
+
+        var denom = d1x * d2y - d1y * d2x;
+        if (Math.Abs(denom) < 1e-9)
+        {
+            return false;
+        }
+
+        var t = ((b1.X - a1.X) * d2y - (b1.Y - a1.Y) * d2x) / denom;
+        var u = ((b1.X - a1.X) * d1y - (b1.Y - a1.Y) * d1x) / denom;
+
+        if (t is < 0 or > 1 || u is < 0 or > 1)
+        {
+            return false;
+        }
+
+        result = new Point(a1.X + t * d1x, a1.Y + t * d1y);
+        return true;
     }
 
     /// <summary>
@@ -723,34 +909,101 @@ public class DrawIoPresenter : Control
             return points;
         }
 
-        if (source is { } start && target is { } end)
+        if (source is not { } start || target is not { } end)
         {
-            var isOrthogonal = string.Equals(
-                style.Get("edgeStyle"), "orthogonalEdgeStyle", StringComparison.OrdinalIgnoreCase);
-            if (!isOrthogonal)
-            {
-                return points;
-            }
+            return points;
+        }
 
-            var exitX = style.GetDouble("exitX", double.NaN);
-            var exitY = style.GetDouble("exitY", double.NaN);
-            var entryX = style.GetDouble("entryX", double.NaN);
-            var entryY = style.GetDouble("entryY", double.NaN);
+        var edgeStyle = style.Get("edgeStyle") ?? string.Empty;
+        var exitX = style.GetDouble("exitX", double.NaN);
+        var exitY = style.GetDouble("exitY", double.NaN);
+        var entryX = style.GetDouble("entryX", double.NaN);
+        var entryY = style.GetDouble("entryY", double.NaN);
 
-            // Only synthesise bends when we know how the edge leaves/enters;
-            // otherwise the straight perimeter-to-perimeter line is used.
-            if (!double.IsNaN(exitX) && !double.IsNaN(entryX))
-            {
-                var horizontal = exitX >= 1 || exitX <= 0 || entryX >= 1 || entryX <= 0;
-                if (horizontal)
-                {
-                    var midX = (start.X + end.X) / 2;
-                    return [start, new Point(midX, start.Y), new Point(midX, end.Y), end];
-                }
-            }
+        // Whether the edge leaves/enters horizontally (side) or vertically.
+        var exitHorizontal = IsHorizontalAnchor(exitX, exitY);
+        var entryHorizontal = IsHorizontalAnchor(entryX, entryY);
+
+        if (string.Equals(edgeStyle, "orthogonalEdgeStyle", StringComparison.OrdinalIgnoreCase))
+        {
+            return OrthogonalRoute(start, end, exitX, exitY, entryX, entryY,
+                exitHorizontal, entryHorizontal, points);
+        }
+
+        // ER-style edges leave/enter horizontally from the table sides.
+        if (string.Equals(edgeStyle, "entityRelationEdgeStyle", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(edgeStyle, "elbowEdgeStyle", StringComparison.OrdinalIgnoreCase))
+        {
+            var midX = (start.X + end.X) / 2;
+            return [start, new Point(midX, start.Y), new Point(midX, end.Y), end];
         }
 
         return points;
+    }
+
+    /// <summary>
+    /// True when a connection anchor points sideways (an exitX of 0 or 1, or an
+    /// entryX of 0 or 1), i.e. the edge leaves/enters the left/right edge.
+    /// </summary>
+    private static bool IsHorizontalAnchor(double x, double y)
+    {
+        if (!double.IsNaN(x))
+        {
+            return x <= 0.001 || x >= 0.999;
+        }
+
+        if (!double.IsNaN(y))
+        {
+            // px anchor: 0 or 1 means top/bottom, which is a vertical exit.
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Builds an orthogonal route between two connection points, choosing the
+    /// bend axis based on how the edge leaves the source and enters the target.
+    /// </summary>
+    private static List<Point> OrthogonalRoute(
+        Point start, Point end,
+        double exitX, double exitY, double entryX, double entryY,
+        bool exitHorizontal, bool entryHorizontal, List<Point> fallback)
+    {
+        // Both sides face horizontally: route via a vertical mid-line.
+        if (exitHorizontal && entryHorizontal)
+        {
+            var midX = (start.X + end.X) / 2;
+            return
+            [
+                start,
+                new Point(midX, start.Y),
+                new Point(midX, end.Y),
+                end,
+            ];
+        }
+
+        // Both sides face vertically: route via a horizontal mid-line.
+        if (!exitHorizontal && !entryHorizontal && (!double.IsNaN(exitY) || !double.IsNaN(entryY)))
+        {
+            var midY = (start.Y + end.Y) / 2;
+            return
+            [
+                start,
+                new Point(start.X, midY),
+                new Point(end.X, midY),
+                end,
+            ];
+        }
+
+        // Mixed anchors: leave along the exit axis, then bend once toward the
+        // target. Two elbows are enough for a clean orthogonal route.
+        if (exitHorizontal)
+        {
+            return [start, new Point(end.X, start.Y), end];
+        }
+
+        return [start, new Point(start.X, end.Y), end];
     }
 
     /// <summary>
