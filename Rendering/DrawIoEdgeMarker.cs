@@ -72,6 +72,39 @@ internal static class DrawIoEdgeMarker
     }
 
     /// <summary>
+    /// Returns how far the edge line must stop short of the marker tip so the
+    /// line does not poke out past the marker, ported from mxConnector's
+    /// per-marker endpoint adjustments (<c>pe</c> offsets in mxMarker.js).
+    /// </summary>
+    internal static double LineInset(string kind, double size, double strokeWidth)
+    {
+        var sw = strokeWidth;
+        var u = size + sw;
+        const double k = 1.118;
+
+        return kind.ToLowerInvariant() switch
+        {
+            "none" or "" => 0,
+            // createArrow: pe += -unit * f - endOffset (f = 3/4 classic, 1 block).
+            "classic" or "classicthin" => 0.75 * u + sw * k,
+            "block" or "blockthin" => u + sw * k,
+            // createOpenArrow: pe += -endOffset * 2.
+            "open" or "openthin" => sw * k * 2,
+            // oval: pe -= unit * (size / 2).
+            "oval" => size / 2,
+            // diamond: pe += -unit - endOffset (swFactor 0.7071 / 0.9862).
+            "diamond" => u + sw * 0.7071,
+            "diamondthin" => u + sw * 0.9862,
+            // doubleBlock: pe += -unit * f * 2 - endOffset.
+            "doubleblock" => 1.5 * u + sw * k,
+            // async: pe += -unit - endOffset.
+            "async" => u + sw * k,
+            // Base of the marker lies ~u behind the tip for the remaining kinds.
+            _ => u + 1,
+        };
+    }
+
+    /// <summary>
     /// Paints a marker whose tip is at <paramref name="tip"/>.
     /// </summary>
     public static void Paint(
@@ -90,7 +123,10 @@ internal static class DrawIoEdgeMarker
             return;
         }
 
-        var pen = result.Stroke ? new Pen(stroke, Math.Max(1, strokeWidth)) : null;
+        // draw.io paints markers with fillAndStroke (filled) or stroke (open).
+        // The stroke is what makes the stroked arrow tip reach the endpoint, so
+        // it must be applied for filled markers too.
+        var pen = new Pen(stroke, Math.Max(1, strokeWidth));
         dc.DrawGeometry(result.Fill ? stroke : null, pen, result.Geometry);
     }
 

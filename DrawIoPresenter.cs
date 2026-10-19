@@ -469,13 +469,17 @@ public class DrawIoPresenter : Control
             ? new Pen(stroke, thickness, new DashStyle([3, 3], 0))
             : new Pen(stroke, thickness);
 
+        // Shorten the line at each end so it stops at the marker base rather
+        // than poking out past the arrow tip (mxMarker mutates the endpoint pe).
+        var linePoints = InsetLineForMarkers(style, points, thickness);
+
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
         {
-            ctx.BeginFigure(points[0], false);
-            for (var i = 1; i < points.Count; i++)
+            ctx.BeginFigure(linePoints[0], false);
+            for (var i = 1; i < linePoints.Count; i++)
             {
-                ctx.LineTo(points[i]);
+                ctx.LineTo(linePoints[i]);
             }
 
             ctx.EndFigure(false);
@@ -641,6 +645,63 @@ public class DrawIoPresenter : Control
 
     private static bool IsNone(string kind) =>
         kind.Length == 0 || string.Equals(kind, "none", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Shortens the polyline at each end by the marker's line inset so the line
+    /// stops at the marker's base instead of running out past the arrow tip
+    /// (draw.io mutates the endpoint <c>pe</c> the same way in mxMarker.js).
+    /// </summary>
+    private static List<Point> InsetLineForMarkers(
+        DrawIoStyle style, List<Point> points, double thickness)
+    {
+        var baseSize = Math.Max(6, thickness * 3);
+
+        var startArrow = style.Get("startArrow") ?? "none";
+        var endArrow = style.Get("endArrow") ?? "classic";
+
+        var startInset = IsNone(startArrow)
+            ? 0
+            : DrawIoEdgeMarker.LineInset(startArrow, style.GetDouble("startSize", baseSize), thickness);
+        var endInset = IsNone(endArrow)
+            ? 0
+            : DrawIoEdgeMarker.LineInset(endArrow, style.GetDouble("endSize", baseSize), thickness);
+
+        if (startInset <= 0 && endInset <= 0)
+        {
+            return points;
+        }
+
+        var result = new List<Point>(points);
+
+        if (startInset > 0)
+        {
+            result[0] = MoveAlong(result[0], result[1], startInset);
+        }
+
+        if (endInset > 0)
+        {
+            var last = result.Count - 1;
+            result[last] = MoveAlong(result[last], result[last - 1], endInset);
+        }
+
+        return result;
+    }
+
+    /// <summary>Moves <paramref name="from"/> toward <paramref name="toward"/> by <paramref name="distance"/>.</summary>
+    private static Point MoveAlong(Point from, Point toward, double distance)
+    {
+        var dx = toward.X - from.X;
+        var dy = toward.Y - from.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-9 || distance >= len)
+        {
+            // Collapse to the midpoint if the segment is shorter than the inset.
+            return new Point((from.X + toward.X) / 2, (from.Y + toward.Y) / 2);
+        }
+
+        var t = distance / len;
+        return new Point(from.X + dx * t, from.Y + dy * t);
+    }
 
     /// <summary>Direction (not normalized) from <paramref name="from"/> to the tip.</summary>
     private static Vector Direction(Point tip, Point from) =>
