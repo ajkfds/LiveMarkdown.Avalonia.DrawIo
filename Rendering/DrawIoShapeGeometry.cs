@@ -148,7 +148,13 @@ internal static class DrawIoShapeGeometry
     private static Point Map(IReadOnlyList<double> coord, Rect bounds) =>
         new(bounds.X + coord[0] * bounds.Width, bounds.Y + coord[1] * bounds.Height);
 
-    private static List<List<double>> ParsePolyCoords(string? value)
+    /// <summary>
+    /// Parses the nested <c>[[x,y],[x,y],...]</c> array used by the
+    /// <c>polyCoords</c> style key into a list of points. The pending number
+    /// must be flushed when the closing bracket is reached, otherwise the
+    /// second component of each pair is dropped.
+    /// </summary>
+    internal static List<List<double>> ParsePolyCoords(string? value)
     {
         var result = new List<List<double>>();
         if (string.IsNullOrWhiteSpace(value))
@@ -156,7 +162,6 @@ internal static class DrawIoShapeGeometry
             return result;
         }
 
-        // Format: [[x,y],[x,y],...]
         var inner = value.Trim();
         var depth = 0;
         var current = new List<double>();
@@ -176,38 +181,50 @@ internal static class DrawIoShapeGeometry
 
                     break;
                 case ']':
-                    if (depth == 2 && current.Count >= 2)
+                    if (depth == 2)
                     {
-                        result.Add(current);
+                        FlushNumber(inner, i, ref numberStart, current);
+                        if (current.Count >= 2)
+                        {
+                            result.Add(current);
+                        }
                     }
 
                     depth--;
                     break;
                 default:
-                    if (depth == 2 && (char.IsDigit(c) || c is '.' or '-' or '+' or 'e' or 'E'))
+                    if (depth == 2 && IsNumberChar(c))
                     {
                         if (numberStart < 0)
                         {
                             numberStart = i;
                         }
                     }
-                    else if (numberStart >= 0)
+                    else
                     {
-                        AppendNumber(current, inner[numberStart..i]);
-                        numberStart = -1;
+                        FlushNumber(inner, i, ref numberStart, current);
                     }
 
                     break;
-            }
-
-            if (depth == 2 && i == inner.Length - 1 && numberStart >= 0)
-            {
-                AppendNumber(current, inner[numberStart..(i + 1)]);
             }
         }
 
         return result;
     }
+
+    private static void FlushNumber(string text, int end, ref int start, List<double> target)
+    {
+        if (start < 0)
+        {
+            return;
+        }
+
+        AppendNumber(target, text[start..end]);
+        start = -1;
+    }
+
+    private static bool IsNumberChar(char c) =>
+        char.IsDigit(c) || c is '.' or '-' or '+' or 'e' or 'E';
 
     private static void AppendNumber(List<double> target, string token)
     {
@@ -230,6 +247,17 @@ internal static class DrawIoShapeGeometry
         var current = new List<string>();
         var tokenStart = -1;
 
+        void Flush(int end)
+        {
+            if (tokenStart < 0)
+            {
+                return;
+            }
+
+            current.Add(inner[tokenStart..end].Trim().Trim('"', '\''));
+            tokenStart = -1;
+        }
+
         for (var i = 0; i < inner.Length; i++)
         {
             var c = inner[i];
@@ -244,29 +272,25 @@ internal static class DrawIoShapeGeometry
 
                     break;
                 case ']':
-                    if (depth == 2 && current.Count > 0)
+                    if (depth == 2)
                     {
-                        result.Add(current);
+                        Flush(i);
+                        if (current.Count > 0)
+                        {
+                            result.Add(current);
+                        }
                     }
 
                     depth--;
                     break;
                 case ',':
-                    if (depth == 2 && tokenStart >= 0)
-                    {
-                        current.Add(inner[tokenStart..i].Trim().Trim('"', '\''));
-                        tokenStart = -1;
-                    }
-
-                    break;
                 case ' ':
                 case '\t':
                 case '\n':
                 case '\r':
-                    if (depth == 2 && tokenStart >= 0)
+                    if (depth == 2)
                     {
-                        current.Add(inner[tokenStart..i].Trim().Trim('"', '\''));
-                        tokenStart = -1;
+                        Flush(i);
                     }
 
                     break;
@@ -277,11 +301,6 @@ internal static class DrawIoShapeGeometry
                     }
 
                     break;
-            }
-
-            if (depth == 2 && i == inner.Length - 1 && tokenStart >= 0)
-            {
-                current.Add(inner[tokenStart..(i + 1)].Trim().Trim('"', '\''));
             }
         }
 

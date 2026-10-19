@@ -288,7 +288,7 @@ public class DrawIoPresenter : Control
                 continue;
             }
 
-            DrawVertex(dc, cell);
+            DrawVertex(dc, diagram, cell);
         }
     }
 
@@ -303,7 +303,7 @@ public class DrawIoPresenter : Control
         }
     }
 
-    private void DrawVertex(DrawingContext dc, DrawIoCell cell)
+    private void DrawVertex(DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell)
     {
         var style = cell.Style;
         var isTextOnly = style.GetBool("text") || style.Shape == "text" ||
@@ -335,17 +335,20 @@ public class DrawIoPresenter : Control
             }
         }
 
-        DrawLabel(dc, cell, bounds, style, isTextOnly);
+        DrawLabel(dc, diagram, cell, bounds, style, isTextOnly);
     }
 
-    private void DrawLabel(DrawingContext dc, DrawIoCell cell, Rect bounds, DrawIoStyle style, bool isTextOnly)
+    private void DrawLabel(
+        DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell, Rect bounds,
+        DrawIoStyle style, bool isTextOnly)
     {
         if (string.IsNullOrWhiteSpace(cell.Value))
         {
             return;
         }
 
-        var (text, spans) = DrawIoLabelParser.Parse(cell.Value, cell.Attributes);
+        var attributes = ResolvePlaceholderAttributes(diagram, cell);
+        var (text, spans) = DrawIoLabelParser.Parse(cell.Value, attributes);
         if (string.IsNullOrWhiteSpace(text))
         {
             return;
@@ -436,31 +439,23 @@ public class DrawIoPresenter : Control
 
     private void DrawEdge(DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell)
     {
+        var style = cell.Style;
         var source = ResolveEndpoint(diagram, cell, cell.Source, isSource: true);
         var target = ResolveEndpoint(diagram, cell, cell.Target, isSource: false);
 
-        var points = new List<Point>();
-        if (source is { } s)
-        {
-            points.Add(s);
-        }
+        var waypoints = (cell.Geometry?.Waypoints ?? [])
+            .Select(p => new Point(p.X, p.Y))
+            .ToList();
 
-        foreach (var waypoint in cell.Geometry?.Waypoints ?? [])
-        {
-            points.Add(new Point(waypoint.X, waypoint.Y));
-        }
-
-        if (target is { } t)
-        {
-            points.Add(t);
-        }
-
+        // draw.io routes edges through the exit/entry connection points on the
+        // source/target perimeters, and inserts orthogonal bends when the edge
+        // has no stored waypoints.
+        var points = BuildEdgePath(diagram, cell, style, source, target, waypoints);
         if (points.Count < 2)
         {
             return;
         }
 
-        var style = cell.Style;
         var stroke = ResolveStroke(style, this) ?? Foreground ?? Brushes.Black;
         var thickness = style.GetDouble("strokeWidth", 1);
         var dashed = style.GetBool("dashed");
@@ -486,15 +481,78 @@ public class DrawIoPresenter : Control
 
         // The edge's own value is drawn at the edge midpoint; separate child
         // cells with the "edgeLabel" style are drawn at their stored offsets.
-        DrawEdgeValueLabel(dc, cell, style, points);
+        DrawEdgeValueLabel(dc, diagram, cell, style, points);
 
         foreach (var childId in cell.Children)
         {
             if (diagram.Cells.TryGetValue(childId, out var child) && IsEdgeLabel(child))
             {
-                DrawEdgeLabelChild(dc, child, style, points);
+                DrawEdgeLabelChild(dc, diagram, child, style, points);
             }
         }
+    }
+
+    /// <summary>
+    /// Builds the polyline for an edge. When the edge stores waypoints they are
+    /// used verbatim; otherwise an orthogonal route is synthesised between the
+    /// resolved exit/entry connection points.
+    /// </summary>
+    private static List<Point> BuildEdgePath(
+        DrawIoDiagram diagram,
+        DrawIoCell edge,
+        DrawIoStyle style,
+        Point? source,
+        Point? target,
+        List<Point> waypoints)
+    {
+        var points = new List<Point>();
+        if (source is { } s)
+        {
+            points.Add(s);
+        }
+
+        points.AddRange(waypoints);
+
+        if (target is { } t)
+        {
+            points.Add(t);
+        }
+
+        // With explicit waypoints draw.io uses them as-is (the connectors are
+        // already orthogonal in the stored geometry).
+        if (waypoints.Count > 0)
+        {
+            return points;
+        }
+
+        if (source is { } start && target is { } end)
+        {
+            var isOrthogonal = string.Equals(
+                style.Get("edgeStyle"), "orthogonalEdgeStyle", StringComparison.OrdinalIgnoreCase);
+            if (!isOrthogonal)
+            {
+                return points;
+            }
+
+            var exitX = style.GetDouble("exitX", double.NaN);
+            var exitY = style.GetDouble("exitY", double.NaN);
+            var entryX = style.GetDouble("entryX", double.NaN);
+            var entryY = style.GetDouble("entryY", double.NaN);
+
+            // Only synthesise bends when we know how the edge leaves/enters;
+            // otherwise the straight perimeter-to-perimeter line is used.
+            if (!double.IsNaN(exitX) && !double.IsNaN(entryX))
+            {
+                var horizontal = exitX >= 1 || exitX <= 0 || entryX >= 1 || entryX <= 0;
+                if (horizontal)
+                {
+                    var midX = (start.X + end.X) / 2;
+                    return [start, new Point(midX, start.Y), new Point(midX, end.Y), end];
+                }
+            }
+        }
+
+        return points;
     }
 
     /// <summary>
@@ -505,6 +563,45 @@ public class DrawIoPresenter : Control
         cell.Style.GetBool("edgeLabel") ||
         string.Equals(cell.Style.Get("shape"), "edgeLabel", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Builds the attribute map used for <c>%Placeholder%</c> substitution.
+    /// draw.io walks up the parent chain, so a child label can resolve
+    /// attributes defined on its parent container (e.g. <c>%ModuleName%</c>).
+    /// The cell's own attributes take precedence over ancestors.
+    /// </summary>
+    private static Dictionary<string, string> ResolvePlaceholderAttributes(
+        DrawIoDiagram diagram, DrawIoCell cell)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Collect from the outermost ancestor down so nearer cells win.
+        var chain = new List<DrawIoCell>();
+        var current = cell;
+        var guard = 0;
+        while (current is not null && guard++ < 64)
+        {
+            chain.Add(current);
+            if (current.Parent is not { Length: > 0 } parentId ||
+                !diagram.Cells.TryGetValue(parentId, out var parent) ||
+                parent.Id == diagram.RootId)
+            {
+                break;
+            }
+
+            current = parent;
+        }
+
+        for (var i = chain.Count - 1; i >= 0; i--)
+        {
+            foreach (var (key, value) in chain[i].Attributes)
+            {
+                result[key] = value;
+            }
+        }
+
+        return result;
+    }
+
     private void DrawEdgeMarkers(
         DrawingContext dc, DrawIoStyle style, List<Point> points, double thickness)
     {
@@ -514,20 +611,21 @@ public class DrawIoPresenter : Control
 
         if (!string.Equals(startArrow, "none", StringComparison.OrdinalIgnoreCase))
         {
-            DrawArrowHead(dc, points[0], points[1], brush, filled: startArrow != "open");
+            DrawArrowHead(dc, points[0], points[1], brush, thickness, startArrow);
         }
 
         if (!string.Equals(endArrow, "none", StringComparison.OrdinalIgnoreCase))
         {
             var last = points.Count - 1;
-            DrawArrowHead(dc, points[last], points[last - 1], brush, filled: endArrow != "open");
+            DrawArrowHead(dc, points[last], points[last - 1], brush, thickness, endArrow);
         }
     }
 
     private static void DrawArrowHead(
-        DrawingContext dc, Point tip, Point from, IBrush brush, bool filled)
+        DrawingContext dc, Point tip, Point from, IBrush brush, double thickness, string kind)
     {
-        const double size = 9;
+        // draw.io scales arrowheads with the stroke width; keep a sensible floor.
+        var size = Math.Max(6, thickness * 3);
         var dx = tip.X - from.X;
         var dy = tip.Y - from.Y;
         var len = Math.Sqrt(dx * dx + dy * dy);
@@ -540,41 +638,43 @@ public class DrawIoPresenter : Control
         dy /= len;
         var perpX = -dy;
         var perpY = dx;
-        const double spread = 0.45;
+        var open = string.Equals(kind, "open", StringComparison.OrdinalIgnoreCase);
+        const double spread = 0.5;
 
-        var left = new Point(tip.X - size * (dx * Math.Cos(spread) - perpX * Math.Sin(spread)),
-                             tip.Y - size * (dy * Math.Cos(spread) - perpY * Math.Sin(spread)));
-        var right = new Point(tip.X - size * (dx * Math.Cos(spread) + perpX * Math.Sin(spread)),
-                              tip.Y - size * (dy * Math.Cos(spread) + perpY * Math.Sin(spread)));
+        var left = new Point(
+            tip.X - size * (dx * Math.Cos(spread) - perpX * Math.Sin(spread)),
+            tip.Y - size * (dy * Math.Cos(spread) - perpY * Math.Sin(spread)));
+        var right = new Point(
+            tip.X - size * (dx * Math.Cos(spread) + perpX * Math.Sin(spread)),
+            tip.Y - size * (dy * Math.Cos(spread) + perpY * Math.Sin(spread)));
 
-        if (filled)
+        if (open)
         {
-            var geometry = new StreamGeometry();
-            using (var ctx = geometry.Open())
-            {
-                ctx.BeginFigure(tip, true);
-                ctx.LineTo(left);
-                ctx.LineTo(right);
-                ctx.EndFigure(true);
-            }
-
-            dc.DrawGeometry(brush, null, geometry);
-        }
-        else
-        {
-            var pen = new Pen(brush, 1);
+            var pen = new Pen(brush, Math.Max(1, thickness));
             dc.DrawLine(pen, left, tip);
             dc.DrawLine(pen, tip, right);
+            return;
         }
+
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(tip, true);
+            ctx.LineTo(left);
+            ctx.LineTo(right);
+            ctx.EndFigure(true);
+        }
+
+        dc.DrawGeometry(brush, null, geometry);
     }
 
     /// <summary>Draws the edge's own value at the edge midpoint.</summary>
     private void DrawEdgeValueLabel(
-        DrawingContext dc, DrawIoCell cell, DrawIoStyle style, List<Point> points)
+        DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell, DrawIoStyle style, List<Point> points)
     {
         var mid = EdgeMidpoint(points);
         var offset = cell.Geometry?.Offset ?? new DrawIoPoint(0, 0);
-        DrawLabelText(dc, cell, style, new Point(mid.X + offset.X, mid.Y + offset.Y));
+        DrawLabelText(dc, diagram, cell, style, new Point(mid.X + offset.X, mid.Y + offset.Y));
     }
 
     /// <summary>
@@ -583,7 +683,7 @@ public class DrawIoPresenter : Control
     /// optional <c>offset</c> point that shifts the text away from the anchor.
     /// </summary>
     private void DrawEdgeLabelChild(
-        DrawingContext dc, DrawIoCell label, DrawIoStyle edgeStyle, List<Point> points)
+        DrawingContext dc, DrawIoDiagram diagram, DrawIoCell label, DrawIoStyle edgeStyle, List<Point> points)
     {
         var mid = EdgeMidpoint(points);
         var geometry = label.Geometry;
@@ -601,13 +701,13 @@ public class DrawIoPresenter : Control
 
         // Prefer the label's own style; fall back to the edge's for font size.
         var style = label.Style;
-        DrawLabelText(dc, label, style, new Point(centerX, centerY));
+        DrawLabelText(dc, diagram, label, style, new Point(centerX, centerY));
     }
 
     private void DrawLabelText(
-        DrawingContext dc, DrawIoCell cell, DrawIoStyle style, Point center)
+        DrawingContext dc, DrawIoDiagram diagram, DrawIoCell cell, DrawIoStyle style, Point center)
     {
-        var (text, _) = DrawIoLabelParser.Parse(cell.Value, cell.Attributes);
+        var (text, _) = DrawIoLabelParser.Parse(cell.Value, ResolvePlaceholderAttributes(diagram, cell));
         if (string.IsNullOrWhiteSpace(text))
         {
             return;
@@ -678,6 +778,12 @@ public class DrawIoPresenter : Control
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
+    /// <summary>
+    /// Resolves an edge endpoint. draw.io connects to the source/target vertex
+    /// perimeter at the exit/entry connection point (defaulting to the center
+    /// when the edge does not constrain it). The exit point is used for the
+    /// source and the entry point for the target.
+    /// </summary>
     private static Point? ResolveEndpoint(
         DrawIoDiagram diagram, DrawIoCell edge, string? endpointId, bool isSource)
     {
@@ -688,7 +794,16 @@ public class DrawIoPresenter : Control
 
         var width = cell.Width;
         var height = cell.Height;
-        return new Point(cell.AbsoluteX + width / 2, cell.AbsoluteY + height / 2);
+
+        var prefix = isSource ? "exit" : "entry";
+        var fx = edge.Style.GetDouble(prefix + "X", double.NaN);
+        var fy = edge.Style.GetDouble(prefix + "Y", double.NaN);
+
+        // Clamp to the shape box; draw.io connection points are normalized.
+        var ox = double.IsNaN(fx) ? 0.5 : Math.Clamp(fx, 0, 1);
+        var oy = double.IsNaN(fy) ? 0.5 : Math.Clamp(fy, 0, 1);
+
+        return new Point(cell.AbsoluteX + ox * width, cell.AbsoluteY + oy * height);
     }
 
     /// <summary>
