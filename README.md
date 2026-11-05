@@ -2,12 +2,30 @@
 
 ![demo](./demo.png)
 
-An extension package for `LiveMarkdown.Avalonia` that natively renders
-[draw.io](https://www.drawio.com/) (mxGraph) diagrams, written in Markdown code
-fences, as Avalonia controls **without a JavaScript runtime or WebView**.
+LiveMarkdown.Avalonia.DrawIo is the **draw.io extension for
+[LiveMarkdown.Avalonia](https://github.com/DearVa/LiveMarkdown.Avalonia)**.
+It natively renders [draw.io](https://www.drawio.com/) (mxGraph) diagrams,
+written in Markdown code fences, as Avalonia controls **without a JavaScript
+runtime or WebView**.
 
 The draw.io XML is parsed in C# and drawn directly via `DrawingContext`, using
 the geometry and style information embedded in the diagram.
+
+## About
+
+This repository is the **draw.io (`mxGraph`) rendering extension** for
+[LiveMarkdown.Avalonia](https://github.com/DearVa/LiveMarkdown.Avalonia).
+It plugs into the LiveMarkdown pipeline (`UseDrawIo()`), registers a
+`DrawIoBlockNode`, and draws the diagram natively with Avalonia — **no
+JavaScript runtime and no WebView**.
+
+| Package | Description |
+| --- | --- |
+| [`LiveMarkdown.Avalonia`](https://github.com/DearVa/LiveMarkdown.Avalonia) | Core Markdown renderer for Avalonia (required dependency). |
+| `LiveMarkdown.Avalonia.DrawIo` (this repo) | Extension that renders ` ```drawio ` fenced blocks as native draw.io diagrams. |
+
+- 🔗 Core project: <https://github.com/DearVa/LiveMarkdown.Avalonia>
+- 🔗 draw.io: <https://www.drawio.com/>
 
 ## Features
 
@@ -29,7 +47,8 @@ the geometry and style information embedded in the diagram.
 dotnet add package LiveMarkdown.Avalonia.DrawIo
 ```
 
-The `LiveMarkdown.Avalonia` core package is required (this package depends on it).
+The [`LiveMarkdown.Avalonia`](https://github.com/DearVa/LiveMarkdown.Avalonia)
+core package is required (this package depends on it).
 
 ## Adding to LiveMarkdown
 
@@ -116,5 +135,6 @@ Apache-2.0
 
 ## References
 
-- Repository: https://github.com/DearVa/LiveMarkdown.Avalonia
+- LiveMarkdown.Avalonia (core, the host renderer): https://github.com/DearVa/LiveMarkdown.Avalonia
 - Official draw.io: https://www.drawio.com/
+- draw.io mxGraph XML reference: https://www.drawio.com/doc/faq/
