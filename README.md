@@ -143,10 +143,15 @@ Releases are automated with GitHub Actions:
 
 - `.github/workflows/ci.yml` builds (with `-warnaserror`) and packs on every push / PR to `main`.
 - `.github/workflows/release.yml` runs when a `v*.*.*` tag is pushed (e.g. `git tag v1.0.0 && git push origin v1.0.0`).
-  It builds, packs, creates a GitHub Release, and — when the `NUGET_API_KEY` repository secret is set —
-  publishes the package to [NuGet.org](https://www.nuget.org/).
+  It builds, packs, creates a GitHub Release, and publishes the package to
+  [NuGet.org](https://www.nuget.org/) using **Trusted Publishing (OIDC)** —
+  no long-lived API key is stored in the repository. Set `NUGET_USER` (the
+  nuget.org account name) as a repository variable/secret and create the matching
+  Trusted Publishing policy on nuget.org. See
+  [`docs/nuget-trusted-publishing.md`](docs/nuget-trusted-publishing.md) for the
+  full setup.
 
-To publish manually:
+To publish manually (local, with your own API key):
 
 ```bash
 dotnet pack LiveMarkdown.Avalonia.DrawIo.csproj -c Release -o ./artifacts
