@@ -27,6 +27,11 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  # nuget.org account name (the "Account name" on your profile, NOT the email).
+  # Set it as a repository *variable* named NUGET_USER (or a secret of the same
+  # name). Workflow-level `if:` cannot read the `secrets` context, so it is
+  # resolved here into an environment variable that later steps can test.
+  NUGET_USER: ${{ vars.NUGET_USER || secrets.NUGET_USER }}
 
 jobs:
   build-and-release:
@@ -87,12 +92,22 @@ jobs:
       # (1 hour) NuGet.org API key. Nothing long-lived is stored. The nuget.org
       # Trusted Publishing policy must be created with the values documented in
       # docs/nuget-trusted-publishing.md (repository owner/name + workflow name).
+      - name: Check Trusted Publishing configuration
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish
+        shell: bash
+        run: |
+          if [ -z "${NUGET_USER}" ]; then
+            echo "::error title=NUGET_USER is not set::Trusted Publishing needs the nuget.org account name. Add a repository variable (or secret) named NUGET_USER, and create a Trusted Publishing policy on nuget.org. See docs/nuget-trusted-publishing.md."
+            exit 1
+          fi
+          echo "Publishing as nuget.org user: ${NUGET_USER}"
+
       - name: NuGet Trusted Publishing login (OIDC)
         id: nuget-login
         if: startsWith(github.ref, 'refs/tags/') || inputs.publish
         uses: NuGet/login@v1
         with:
-          user: ${{ vars.NUGET_USER || secrets.NUGET_USER }}
+          user: ${{ env.NUGET_USER }}
 
       - name: Push to NuGet.org
         if: steps.nuget-login.outputs.NUGET_API_KEY != ''

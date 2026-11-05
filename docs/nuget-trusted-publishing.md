@@ -51,6 +51,12 @@ API キー（`NUGET_API_KEY`）の登録は **不要** です。Trusted Publishi
 取得した一時 API キーは `.nupkg` と `.snupkg`（シンボルパッケージ）の両方の push に
 使用されます。
 
+> **`Error: Input required and not supplied: user` が出た場合**
+> `NUGET_USER` が未登録（または空）です。上記のとおり Variables か Secrets に
+> nuget.org の **Account name** を `NUGET_USER` として登録してください。
+> 値にメールアドレスを使うと `NuGet/login` が失敗します。
+> ワークフローは未設定時に分かりやすいエラーメッセージで早期に失敗するようにしています。
+
 ## 3. ワークフローの権限
 
 `.github/workflows/release.yml` には以下が必要です（設定済み）。
