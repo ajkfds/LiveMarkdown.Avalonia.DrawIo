@@ -7,6 +7,8 @@ fences, as Avalonia controls **without a JavaScript runtime or WebView**.
 The draw.io XML is parsed in C# and drawn directly via `DrawingContext`, using
 the geometry and style information embedded in the diagram.
 
+![demo](./demo.png)
+
 ## Features
 
 - 🔌 **Markdown integration** — Detects ` ```drawio ` fences and renders the embedded draw.io XML.
