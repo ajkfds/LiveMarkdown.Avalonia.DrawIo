@@ -1,13 +1,13 @@
 # LiveMarkdown.Avalonia.DrawIo
 
+![demo](./demo.png)
+
 An extension package for `LiveMarkdown.Avalonia` that natively renders
 [draw.io](https://www.drawio.com/) (mxGraph) diagrams, written in Markdown code
 fences, as Avalonia controls **without a JavaScript runtime or WebView**.
 
 The draw.io XML is parsed in C# and drawn directly via `DrawingContext`, using
 the geometry and style information embedded in the diagram.
-
-![demo](./demo.png)
 
 ## Features
 
