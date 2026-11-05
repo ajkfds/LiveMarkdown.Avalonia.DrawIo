@@ -129,6 +129,30 @@ Paste the draw.io XML (via **Extras → Edit Diagram…** in draw.io) inside a
 
 See `TODO.md` for the full list of unsupported features.
 
+## Building & Releasing
+
+```bash
+# Build
+dotnet build LiveMarkdown.Avalonia.DrawIo.csproj -c Release
+
+# Produce NuGet packages (nupkg + snupkg) in ./artifacts
+dotnet pack LiveMarkdown.Avalonia.DrawIo.csproj -c Release -o ./artifacts
+```
+
+Releases are automated with GitHub Actions:
+
+- `.github/workflows/ci.yml` builds (with `-warnaserror`) and packs on every push / PR to `main`.
+- `.github/workflows/release.yml` runs when a `v*.*.*` tag is pushed (e.g. `git tag v1.0.0 && git push origin v1.0.0`).
+  It builds, packs, creates a GitHub Release, and — when the `NUGET_API_KEY` repository secret is set —
+  publishes the package to [NuGet.org](https://www.nuget.org/).
+
+To publish manually:
+
+```bash
+dotnet pack LiveMarkdown.Avalonia.DrawIo.csproj -c Release -o ./artifacts
+dotnet nuget push "artifacts/*.nupkg" --api-key <YOUR_API_KEY> --source https://api.nuget.org/v3/index.json
+```
+
 ## License
 
 Apache-2.0

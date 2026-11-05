@@ -2,31 +2,68 @@
   <PropertyGroup>
     <RootNamespace>LiveMarkdown.Avalonia</RootNamespace>
     <TargetFramework>net10.0</TargetFramework>
-    <Title>LiveMarkdown.Avalonia.DrawIo</Title>
-    <Authors>DearVa</Authors>
-    <Description>This is a extension package for LiveMarkdown.Avalonia that adds support for rendering draw.io (mxGraph) diagrams.</Description>
-    <PackageProjectUrl>https://github.com/DearVa/LiveMarkdown.Avalonia</PackageProjectUrl>
-    <PackageIcon>icon.png</PackageIcon>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/DearVa/LiveMarkdown.Avalonia</RepositoryUrl>
-    <PackageTags>markdown;avalonia;llm;drawio;mxgraph;diagram</PackageTags>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!--
+      CS1591: missing XML doc comment (public API docs are provided selectively).
+      NU1902: Microsoft.Build.Tasks.Git (pulled in transitively by SourceLink) is a
+              build-time only dependency; the advisory does not affect the shipped package.
+    -->
+    <NoWarn>$(NoWarn);CS1591;NU1902</NoWarn>
+  </PropertyGroup>
+
+  <!-- Package metadata -->
+  <PropertyGroup>
+    <PackageId>LiveMarkdown.Avalonia.DrawIo</PackageId>
+    <Title>LiveMarkdown.Avalonia.DrawIo</Title>
+    <Description>This is a extension package for LiveMarkdown.Avalonia that adds support for rendering draw.io (mxGraph) diagrams.</Description>
+    <Authors>DearVa</Authors>
+    <Company>DearVa</Company>
+    <Copyright>Copyright (c) DearVa</Copyright>
+    <PackageProjectUrl>https://github.com/DearVa/LiveMarkdown.Avalonia</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/ajkfds/LiveMarkdown.Avalonia.DrawIo</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageTags>markdown;avalonia;llm;drawio;mxgraph;diagram</PackageTags>
+    <PackageReleaseNotes>See https://github.com/ajkfds/LiveMarkdown.Avalonia.DrawIo/blob/main/README.md and TODO.md for the supported feature set.</PackageReleaseNotes>
+    <IsPackable>true</IsPackable>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <!-- Versioning -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+
+  <!-- Reproducible / source-linked builds -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
-    <DocumentationFile>bin\Release\LiveMarkdown.Avalonia.DrawIo.xml</DocumentationFile>
+    <Optimize>true</Optimize>
+    <ContinuousIntegrationBuild Condition=" '$(GITHUB_ACTIONS)' == 'true' ">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.4" />
     <PackageReference Include="LiveMarkdown.Avalonia" Version="2.5.1" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.102" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
-    <None Include="..\..\img\icon.png" Pack="true" PackagePath="icon.png" />
+    <None Include="icon.png" Pack="true" PackagePath="icon.png" Condition="Exists('icon.png')" />
+    <None Include="demo.png" Pack="true" PackagePath="icon.png" Condition="!Exists('icon.png')" />
   </ItemGroup>
 </Project>
