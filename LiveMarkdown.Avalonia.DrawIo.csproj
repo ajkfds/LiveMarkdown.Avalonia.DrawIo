@@ -22,7 +22,7 @@
     <Authors>DearVa</Authors>
     <Company>DearVa</Company>
     <Copyright>Copyright (c) DearVa</Copyright>
-    <PackageProjectUrl>https://github.com/DearVa/LiveMarkdown.Avalonia</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/ajkfds/LiveMarkdown.Avalonia.DrawIo</PackageProjectUrl>
     <RepositoryUrl>https://github.com/ajkfds/LiveMarkdown.Avalonia.DrawIo</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageIcon>icon.png</PackageIcon>
